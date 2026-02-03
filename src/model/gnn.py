@@ -4,9 +4,7 @@ from e3nn import o3
 # from e3nn.nn.models.gate_points_2102 import InteractionBlock # REMOVED
 from torch_scatter import scatter # Will check if this works, else fallback handled in valid places?
 
-from src.model.basis import MultiScaleGaussianBasis
-from src.model.layers import AtomicEmbedding, CustomInteractionBlock
-from src.model.pooling import AbsorberQueryAttention
+from src.model import MultiScaleGaussianBasis, AtomicEmbedding, CustomInteractionBlock, AbsorberQueryAttention
 
 class XANES_E3GNN(nn.Module):
     def __init__(self, 

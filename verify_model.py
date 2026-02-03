@@ -1,9 +1,7 @@
 import torch
 import torch.nn as nn
 from torch_geometric.data import Data
-from src.model.gnn import XANES_E3GNN
-from src.loss import SpectrumLoss
-from src.train import run_training
+from src import XANES_E3GNN, SpectrumLoss, run_training
 
 def create_dummy_data(num_graphs=10):
     dataset = []
