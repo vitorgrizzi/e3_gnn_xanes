@@ -21,9 +21,17 @@ def check_invariance():
     absorber_mask[0] = True
     
     data = Data(x=z.unsqueeze(1), z=z, pos=pos, edge_index=edge_index, batch=batch, absorber_mask=absorber_mask)
-    
+ 
     # 2. Setup Model
     model = XANES_E3GNN(max_z=100, num_layers=2, num_basis=32)
+    
+    # Load trained weights
+    try:
+        model.load_state_dict(torch.load('best_model.pt', weights_only=True))
+        print("Loaded weights from best_model.pt")
+    except FileNotFoundError:
+        print("Warning: best_model.pt not found, using random weights.")
+    
     model.eval()
     
     # 3. Predict Original
