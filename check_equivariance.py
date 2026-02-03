@@ -1,7 +1,7 @@
 import torch
 from torch_geometric.data import Data
 from e3nn import o3
-from src.model.gnn import XANES_E3GNN
+from src import XANES_E3GNN
 
 def check_invariance():
     print("Checking Rotation Invariance...")

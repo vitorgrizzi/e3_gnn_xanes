@@ -87,9 +87,9 @@ run_training(model, train_dataset, val_dataset, config)
 ## Mathematical Framework
 
 - **Scattering Propagator**:
-  $m_{ij} = TP(h_j, Y(\hat{r}_{ij})) \cdot MLP(d_{ij})$
+  $$m_{ij} = TP(h_j, Y(\hat{r}_{ij})) \cdot MLP(d_{ij})$$
 - **Reconstruction**:
-  $\hat{\mu}(E) = B \cdot c_{basis}$
+  $$\hat{\mu}(E) = B \cdot c_{basis}$$
   Where $B$ is the multi-scale basis matrix and $c_{basis}$ are the predicted coefficients.
 - **Loss**:
-  $L = MSE(\mu, \hat{\mu}) + \lambda MSE(\nabla_E \mu, \nabla_E \hat{\mu})$
+  $$L = MSE(\mu, \hat{\mu}) + \lambda MSE(\nabla_E \mu, \nabla_E \hat{\mu})$$
