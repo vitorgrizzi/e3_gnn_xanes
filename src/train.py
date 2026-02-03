@@ -47,7 +47,7 @@ def validate(model, loader, criterion, device, energy_grid):
     return total_loss / len(loader.dataset)
 
 def run_training(model, train_dataset, val_dataset, config):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = config.get('device', torch.device('cuda' if torch.cuda.is_available() else 'cpu'))
     model = model.to(device)
     
     optimizer = optim.AdamW(model.parameters(), lr=config.get('lr', 1e-3))
@@ -62,3 +62,9 @@ def run_training(model, train_dataset, val_dataset, config):
         train_loss, mse, grad = train_epoch(model, train_loader, optimizer, criterion, device, energy_grid)
         val_loss = validate(model, val_loader, criterion, device, energy_grid)
         print(f"Epoch {epoch+1}/{epochs} | Train Loss: {train_loss:.4f} (MSE: {mse:.4f}, Grad: {grad:.4f}) | Val Loss: {val_loss:.4f}")
+
+    # Save model if save_path is provided
+    save_path = config.get('save_path')
+    if save_path:
+        torch.save(model.state_dict(), save_path)
+        print(f"Model saved to {save_path}")

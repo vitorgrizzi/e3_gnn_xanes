@@ -60,7 +60,8 @@ def verify():
         'batch_size': 4,
         'epochs': 2,
         'criterion': criterion,
-        'energy_grid': energy_grid
+        'energy_grid': energy_grid,
+        'save_path': 'best_model.pt'
     }
     
     print("Starting Dummy Training Loop...")
