@@ -1,12 +1,11 @@
 import torch
 import torch.nn as nn
 from e3nn import o3
-from e3nn.nn.models.gate_points_2102 import InteractionBlock
-from e3nn.nn import FullyConnectedNet
-from torch_scatter import scatter
+# from e3nn.nn.models.gate_points_2102 import InteractionBlock # REMOVED
+from torch_scatter import scatter # Will check if this works, else fallback handled in valid places?
 
 from src.model.basis import MultiScaleGaussianBasis
-from src.model.layers import AtomicEmbedding
+from src.model.layers import AtomicEmbedding, CustomInteractionBlock
 from src.model.pooling import AbsorberQueryAttention
 
 class XANES_E3GNN(nn.Module):
@@ -27,9 +26,6 @@ class XANES_E3GNN(nn.Module):
         self.embedding = AtomicEmbedding(max_z, mul_0)
         
         # Define hidden irreps: e.g. 64x0e + 32x1o + 16x2e
-        # Note: Parity depends on physics. 
-        # Spherical harmonics: Y0: even, Y1: odd, Y2: even.
-        # Let's align hidden features with that logic if we assume geometric nature.
         self.irreps_hidden = o3.Irreps(f"{mul_0}x0e + {mul_1}x1o + {mul_2}x2e")
         
         # Input irreps to first layer: just scalars (0e) from embedding
@@ -39,17 +35,12 @@ class XANES_E3GNN(nn.Module):
         self.layers = nn.ModuleList()
         self.irreps_sh = o3.Irreps.spherical_harmonics(lmax)
         
-        # We need to bridge from embedding (scalars) to hidden irreps in the first layer
-        # InteractionBlock usually takes 'irreps_in' and produces 'irreps_out'.
-        # However, it expects 'irreps_in' to match the previous output.
-        # We might need an initial Linear or TensorProduct to populate higher ls?
-        # Standard e3nn pattern: Start with scalars, interaction mixes in Y(r) to create l>0.
-        
         # Layer 0: scalars -> hidden
         self.layers.append(
-            InteractionBlock(
+            CustomInteractionBlock(
                 irreps_in=self.irreps_in,
                 irreps_out=self.irreps_hidden,
+                irreps_sh=self.irreps_sh,
                 number_of_radial_basis_functions=10,
                 steps=torch.linspace(0.0, r_max, 10),
             )
@@ -58,9 +49,10 @@ class XANES_E3GNN(nn.Module):
         # Subsequent layers: hidden -> hidden
         for _ in range(num_layers - 1):
              self.layers.append(
-                InteractionBlock(
+                CustomInteractionBlock(
                     irreps_in=self.irreps_hidden,
                     irreps_out=self.irreps_hidden,
+                    irreps_sh=self.irreps_sh,
                     number_of_radial_basis_functions=10,
                     steps=torch.linspace(0.0, r_max, 10),
                 )
@@ -73,17 +65,6 @@ class XANES_E3GNN(nn.Module):
         )
         
         # 4. Readout Head
-        # Extract features from Absorber State + Context
-        # s_a (scalars), c (context), norms(l=1), norms(l=2)
-        
-        # Calculate input dim for final MLP
-        # s_a: mul_0
-        # c: mul_0
-        # |v_a|^2: mul_1 (one norm per channel if we treat them as independent vectors? Or sum? 
-        # User said "The invariant norms of the l=1 features". Usually means norm per multiplicity channel.
-        # So mul_1 scalars.
-        # |t_a|^2: mul_2 scalars.
-        
         readout_dim = mul_0 + mul_0 + mul_1 + mul_2
         
         self.readout_mlp = nn.Sequential(
@@ -98,14 +79,14 @@ class XANES_E3GNN(nn.Module):
     def forward(self, data):
         """
         Args:
-            data: PyG Data object with:
-                  - x: (N, 1) or z: (N,) atomic numbers
-                  - pos: (N, 3)
-                  - edge_index: (2, E)
-                  - batch: (N,)
-                  - absorber_mask: (N,) boolean
+            data: PyG Data object
         """
-        z = data.z if hasattr(data, 'z') else data.x.squeeze().long()
+        # Fallback for data.z vs data.x
+        if hasattr(data, 'z') and data.z is not None:
+             z = data.z
+        else:
+             z = data.x.squeeze().long()
+             
         pos = data.pos
         edge_index = data.edge_index
         batch = data.batch
@@ -121,57 +102,59 @@ class XANES_E3GNN(nn.Module):
         
         # Interaction Blocks
         for layer in self.layers:
-            h = layer(h, edge_vec=vec, edge_attr=edge_sh, edge_length=edge_len, edge_src=edge_src, edge_dst=edge_dst)
+            h = layer(x=h, edge_attr=edge_sh, edge_length=edge_len, edge_src=edge_src, edge_dst=edge_dst)
             
         # Extract Absorber State for Readout
         # h matches self.irreps_hidden
         # 64x0e + 32x1o + 16x2e
+        # We need rigorous slicing based on irreps
+        # e3nn might have evolved internal structures, but direct slicing is robust if layout is fixed.
         
-        # We need to decompose h back into parts
-        # e3nn doesn't always make this trivial if we just have a tensor.
-        # But we know the slices because fixed irreps.
+        current_idx = 0
+        slices = []
+        for mul, ir in self.irreps_hidden:
+            length = mul * ir.dim
+            slices.append((current_idx, current_idx + length))
+            current_idx += length
+            
+        # We assume order: 0e, 1o, 2e as defined in init string
+        # slice 0: 64x0e
+        # slice 1: 32x1o
+        # slice 2: 16x2e
         
-        idx_0 = 0
-        len_0 = 64 # mul_0
-        idx_1 = idx_0 + len_0
-        len_1 = 32 * 3 # mul_1 * 3
-        idx_2 = idx_1 + len_1
-        len_2 = 16 * 5 # mul_2 * 5
+        s_range = slices[0]
+        v_range = slices[1]
+        t_range = slices[2]
         
-        scalars_all = h[:, idx_0:idx_0+len_0]
-        l1_all = h[:, idx_1:idx_1+len_1].reshape(-1, 32, 3) # [N, 32, 3]
-        l2_all = h[:, idx_2:idx_2+len_2].reshape(-1, 16, 5) # [N, 16, 5]
+        scalars_all = h[:, s_range[0]:s_range[1]]
+        
+        # Reshape vectors and tensors
+        l1_all = h[:, v_range[0]:v_range[1]].reshape(-1, 32, 3)
+        l2_all = h[:, t_range[0]:t_range[1]].reshape(-1, 16, 5)
         
         # Absorber specific features
         mask = data.absorber_mask
-        s_a = scalars_all[mask] # [N_graphs, 64]
-        v_a = l1_all[mask]      # [N_graphs, 32, 3]
-        t_a = l2_all[mask]      # [N_graphs, 16, 5]
+        s_a = scalars_all[mask] 
+        v_a = l1_all[mask]      
+        t_a = l2_all[mask]      
         
         # Norms
-        # sq norm = sum squares over component dim
-        norm_v = torch.sum(v_a**2, dim=-1) # [N_graphs, 32]
-        norm_t = torch.sum(t_a**2, dim=-1) # [N_graphs, 16]
+        norm_v = torch.sum(v_a**2, dim=-1) # [N_graph, 32]
+        norm_t = torch.sum(t_a**2, dim=-1) # [N_graph, 16]
         
         # Context Pooling
-        # The pooling layer expects the full node features 'h' and returns aggregated context
-        # But our pooling layer as implemented expects 'x' and parses scalars internally.
-        # Let's pass 'scalars_all' to it to be safe/simple, or pass 'h' if it handles slicing.
-        # My implementation of AbsorberQueryAttention takes 'x' and slices self.n_scalars.
-        # If I pass 'h', it will take the first 64 channels, which IS the scalars.
-        c = self.pooling(h, mask, batch) # [N_graphs, 64]
+        c = self.pooling(h, mask, batch) # [N_graph, 64]
         
         # Concatenate
-        z_readout = torch.cat([s_a, c, norm_v, norm_t], dim=1) # [64+64+32+16]
+        z_readout = torch.cat([s_a, c, norm_v, norm_t], dim=1) 
         
         # Predict Coefficients
-        coeffs = self.readout_mlp(z_readout) # [N_graphs, num_basis]
+        coeffs = self.readout_mlp(z_readout)
         
         return coeffs
     
     def predict_spectra(self, data, energy_grid):
         coeffs = self.forward(data) # [B, M]
         basis_matrix = self.basis(energy_grid) # [N_E, M]
-        # spectra = basis @ coeffs.T -> [N_E, B] -> transpose -> [B, N_E]
         spectra = torch.matmul(basis_matrix, coeffs.T).T
         return spectra
