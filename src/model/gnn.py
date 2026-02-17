@@ -1,10 +1,9 @@
 import torch
 import torch.nn as nn
 from e3nn import o3
-# from e3nn.nn.models.gate_points_2102 import InteractionBlock # REMOVED
-from torch_scatter import scatter # Will check if this works, else fallback handled in valid places?
 
 from src.model import MultiScaleGaussianBasis, AtomicEmbedding, CustomInteractionBlock, AbsorberQueryAttention
+
 
 class XANES_E3GNN(nn.Module):
     def __init__(self, 
@@ -16,9 +15,15 @@ class XANES_E3GNN(nn.Module):
                  mul_2=16,
                  r_max=5.0,
                  num_basis=128,
+                 num_radial=10,
                  basis_scales=[0.1, 0.5, 1.0],
                  emin=-10, emax=50):
         super().__init__()
+        
+        # Store multiplicities for use in forward()
+        self.mul_0 = mul_0
+        self.mul_1 = mul_1
+        self.mul_2 = mul_2
         
         # 1. Embeddings & Irreps
         self.embedding = AtomicEmbedding(max_z, mul_0)
@@ -39,8 +44,8 @@ class XANES_E3GNN(nn.Module):
                 irreps_in=self.irreps_in,
                 irreps_out=self.irreps_hidden,
                 irreps_sh=self.irreps_sh,
-                number_of_radial_basis_functions=10,
-                steps=torch.linspace(0.0, r_max, 10),
+                number_of_radial_basis_functions=num_radial,
+                steps=torch.linspace(0.0, r_max, num_radial),
             )
         )
         
@@ -51,8 +56,8 @@ class XANES_E3GNN(nn.Module):
                     irreps_in=self.irreps_hidden,
                     irreps_out=self.irreps_hidden,
                     irreps_sh=self.irreps_sh,
-                    number_of_radial_basis_functions=10,
-                    steps=torch.linspace(0.0, r_max, 10),
+                    number_of_radial_basis_functions=num_radial,
+                    steps=torch.linspace(0.0, r_max, num_radial),
                 )
              )
              
@@ -63,6 +68,7 @@ class XANES_E3GNN(nn.Module):
         )
         
         # 4. Readout Head
+        # s_a (mul_0) + context (mul_0) + norm_v (mul_1) + norm_t (mul_2)
         readout_dim = mul_0 + mul_0 + mul_1 + mul_2
         
         self.readout_mlp = nn.Sequential(
@@ -72,42 +78,48 @@ class XANES_E3GNN(nn.Module):
         )
         
         # Basis
-        self.basis = MultiScaleGaussianBasis(n_basis=num_basis, emin=emin, emax=emax, scales_ratios=basis_scales)
+        self.basis = MultiScaleGaussianBasis(
+            n_basis=num_basis, emin=emin, emax=emax, scales_ratios=basis_scales
+        )
         
     def forward(self, data):
         """
         Args:
-            data: PyG Data object
+            data: PyG Data object with pos, z, edge_index, edge_shift,
+                  batch, absorber_mask.  ``edge_shift`` carries the
+                  Cartesian PBC displacement so that the true edge
+                  vector is ``pos[dst] - pos[src] + edge_shift``.
         """
         # Fallback for data.z vs data.x
         if hasattr(data, 'z') and data.z is not None:
              z = data.z
         else:
-             z = data.x.squeeze().long()
+             raise ValueError("data.z is None")
              
         pos = data.pos
         edge_index = data.edge_index
         batch = data.batch
         
         # Embed
-        h = self.embedding(z) # [N, mul_0]
+        h = self.embedding(z)
         
-        # Edge attributes
+        # Edge attributes  (PBC-aware)
         edge_src, edge_dst = edge_index
-        vec = pos[edge_dst] - pos[edge_src]
+        edge_shift = getattr(data, 'edge_shift', torch.zeros_like(pos[edge_src]))
+        vec = pos[edge_dst] - pos[edge_src] + edge_shift
         edge_len = vec.norm(dim=1)
-        edge_sh = o3.spherical_harmonics(self.irreps_sh, vec, normalize=True, normalization='component')
+        edge_sh = o3.spherical_harmonics(
+            self.irreps_sh, vec, normalize=True, normalization='component'
+        )
         
         # Interaction Blocks
         for layer in self.layers:
-            h = layer(x=h, edge_attr=edge_sh, edge_length=edge_len, edge_src=edge_src, edge_dst=edge_dst)
+            h = layer(
+                x=h, edge_attr=edge_sh, edge_length=edge_len,
+                edge_src=edge_src, edge_dst=edge_dst,
+            )
             
-        # Extract Absorber State for Readout
-        # h matches self.irreps_hidden
-        # 64x0e + 32x1o + 16x2e
-        # We need rigorous slicing based on irreps
-        # e3nn might have evolved internal structures, but direct slicing is robust if layout is fixed.
-        
+        # Slice features by irrep type using stored multiplicities
         current_idx = 0
         slices = []
         for mul, ir in self.irreps_hidden:
@@ -115,44 +127,34 @@ class XANES_E3GNN(nn.Module):
             slices.append((current_idx, current_idx + length))
             current_idx += length
             
-        # We assume order: 0e, 1o, 2e as defined in init string
-        # slice 0: 64x0e
-        # slice 1: 32x1o
-        # slice 2: 16x2e
-        
-        s_range = slices[0]
-        v_range = slices[1]
-        t_range = slices[2]
+        s_range, v_range, t_range = slices[0], slices[1], slices[2]
         
         scalars_all = h[:, s_range[0]:s_range[1]]
+        l1_all = h[:, v_range[0]:v_range[1]].reshape(-1, self.mul_1, 3)
+        l2_all = h[:, t_range[0]:t_range[1]].reshape(-1, self.mul_2, 5)
         
-        # Reshape vectors and tensors
-        l1_all = h[:, v_range[0]:v_range[1]].reshape(-1, 32, 3)
-        l2_all = h[:, t_range[0]:t_range[1]].reshape(-1, 16, 5)
-        
-        # Absorber specific features
+        # Absorber-specific features
         mask = data.absorber_mask
         s_a = scalars_all[mask] 
         v_a = l1_all[mask]      
         t_a = l2_all[mask]      
         
-        # Norms
-        norm_v = torch.sum(v_a**2, dim=-1) # [N_graph, 32]
-        norm_t = torch.sum(t_a**2, dim=-1) # [N_graph, 16]
+        # Invariant norms of higher-order features
+        norm_v = torch.sum(v_a ** 2, dim=-1)   # [N_graph, mul_1]
+        norm_t = torch.sum(t_a ** 2, dim=-1)   # [N_graph, mul_2]
         
         # Context Pooling
-        c = self.pooling(h, mask, batch) # [N_graph, 64]
+        c = self.pooling(h, mask, batch)         # [N_graph, mul_0]
         
-        # Concatenate
+        # Concatenate & predict coefficients
         z_readout = torch.cat([s_a, c, norm_v, norm_t], dim=1) 
-        
-        # Predict Coefficients
         coeffs = self.readout_mlp(z_readout)
         
         return coeffs
     
     def predict_spectra(self, data, energy_grid):
-        coeffs = self.forward(data) # [B, M]
-        basis_matrix = self.basis(energy_grid) # [N_E, M]
+        coeffs = self.forward(data)                        # [B, M]
+        energy_grid = energy_grid.to(coeffs.device)        # device guard
+        basis_matrix = self.basis(energy_grid)              # [N_E, M]
         spectra = torch.matmul(basis_matrix, coeffs.T).T
         return spectra

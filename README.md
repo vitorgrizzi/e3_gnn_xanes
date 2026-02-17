@@ -6,26 +6,35 @@ An E(3)-Equivariant Graph Neural Network (GNN) implementation for predicting X-r
 
 - **Physics-Informed Architecture**: Strictly enforces the physics of core-hole interactions.
 - **E(3) Equivariance**: Built with `e3nn` to handle geometric tensors and maintain rotational invariance.
+- **PBC-Aware Periodicity**: Handles Periodic Boundary Conditions correctly via displacement vectors, allowing seamless training on bulk solids.
+- **Multi-Site Handling**: Correctly processes structures with multiple absorber atoms, generating per-site spectral predictions.
 - **Multi-Scale Gaussian Basis**: Uses multiple widths of Radial Basis Functions (RBFs) to capture both sharp absorption edges and broad scattering oscillations.
 - **Absorber-Query Attention**: Concentrates environmental context using the absorbing atom as the attention query.
-- **Anisotropy-Aware Readout**: Preserves the magnitude of $l>0$ features (dipole/quadrupoles) to capture local crystal field splitting effects.
 
 ## Project Structure
 
 ```text
 E3GNN_xanes/
 ├── src/
+│   ├── data/
+│   │   ├── assemble_dataset.py  # Parses FDMNES outputs into ASE SQLite DB
+│   │   ├── dataset.py           # PyG dataset implementation (ASE DB backed)
+│   │   ├── transforms.py        # Graph connectivity transforms
+│   │   └── utils.py             # Spectral normalization & parsing utilities
 │   ├── model/
-│   │   ├── basis.py      # Multi-scale Gaussian basis implementation
-│   │   ├── layers.py     # Atomic embeddings and custom interaction blocks
-│   │   ├── pooling.py    # Absorber-query attention mechanism
-│   │   └── gnn.py        # Main XANES_E3GNN architecture
-│   ├── loss.py           # Combined MSE + Gradient shape loss
-│   └── train.py          # Training loop and utility functions
-├── verify_model.py       # Smoke test using synthetic data
-├── check_equivariance.py # Script to verify rotation invariance
-├── requirements.txt      # Project dependencies
-└── README.md             # This file
+│   │   ├── basis.py             # Multi-scale Gaussian basis
+│   │   ├── layers.py            # Equivariant interaction blocks
+│   │   ├── pooling.py           # Absorber-query attention
+│   │   └── gnn.py               # Main PBC-aware architecture
+│   ├── loss.py                  # Combined MSE + Gradient shape loss
+│   └── train.py                 # Training entry point (Hydra/WandB)
+├── configs/
+│   └── config.yaml              # Hydra configuration for model & training
+├── tests/
+│   ├── test_data.py             # Verification for PBC & multi-site data
+│   └── test_model.py            # Equivariance & forward pass tests
+├── requirements.txt
+└── README.md
 ```
 
 ## Installation
@@ -41,63 +50,43 @@ E3GNN_xanes/
    pip install -r requirements.txt
    ```
 
-## Usage
+## Workflow
 
-### Verification
-Run the verification script to ensure the model architecture and training loop are functioning correctly:
+### 1. Data Preparation
+First, assemble your FDMNES calculation outputs into an ASE SQLite database:
 ```bash
-python verify_model.py
+python src/data/assemble_dataset.py
 ```
-This will create a `best_model.pt` file upon completion.
+This utility recursively scans directories, extracts structural data (with PBC), and stores normalized spectra in `xanes_dataset.db`.
 
-### Symmetry Check
-Verify that the model satisfies physical rotation invariance:
+### 2. Verification
+Ensure the data pipeline and model geometry are correct:
 ```bash
-python check_equivariance.py
+# Test the PBC dataset pipeline
+python tests/test_data.py
+
+# Test model forward pass & equivariance
+python -m pytest tests/test_model.py
 ```
 
-### Training
-To train on custom data:
-```python
-import torch
-from src import XANES_E3GNN, SpectrumLoss, run_training
-
-# 1. Setup Model
-model = XANES_E3GNN(
-    num_layers=4,
-    lmax=2,
-    num_basis=128
-)
-
-# 2. Setup Loss
-criterion = SpectrumLoss(lambda_grad=0.5)
-
-# 3. Train
-config = {
-    'lr': 1e-3,
-    'batch_size': 16,
-    'epochs': 100,
-    'criterion': criterion,
-    'energy_grid': energy_grid,
-    'save_path': 'xanes_model.pt'
-}
-run_training(model, train_dataset, val_dataset, config)
+### 3. Training
+Train the model using the Hydra-based entry point:
+```bash
+python src/train.py data.db_path=/path/to/xanes_dataset.db
 ```
+Configuration settings (layers, hidden dims, learning rate, etc.) can be modified in `configs/config.yaml` or overridden via CLI.
 
 ## Mathematical Framework
 
-**Scattering Propagator**:
+**Periodic Interaction**:
+The model computes true displacement vectors $\mathbf{r}_{ij}$ that wrap across cell boundaries:
 ```math
-m_{ij} = \text{TP}(h_j, Y(\hat{r}_{ij})) \cdot \text{MLP}(d_{ij})
+\mathbf{r}_{ij} = \mathbf{pos}_j - \mathbf{pos}_i + \mathbf{S}_{ij} \cdot \mathbf{h}
 ```
+Where $\mathbf{S}_{ij}$ is the integer periodic shift and $\mathbf{h}$ is the lattice matrix.
 
-**Reconstruction**:
+**Spectral Reconstruction**:
 ```math
-\hat{\mu}(E) = B \cdot c_{\text{basis}}
+\hat{\mu}(E) = \sum_{k} c_k \cdot G_k(E)
 ```
-Where $B$ is the multi-scale basis matrix and $c_{\text{basis}}$ are the predicted coefficients.
-
-**Loss**:
-```math
-L = \text{MSE}(\mu, \hat{\mu}) + \lambda \text{MSE}(\nabla_E \mu, \nabla_E \hat{\mu})
-```
+Where $G_k$ are the multi-scale Gaussian basis functions and $c_k$ are the scalars predicted by the equivariant backbone.
