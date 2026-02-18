@@ -46,8 +46,13 @@ class AbsorberQueryAttention(nn.Module):
         # Extract scalar features (assumed to be first n_scalars channels)
         scalars = x[:, :self.n_scalars]
         
-        # Absorber query per graph → expand to all nodes via batch vector
-        q_global = scalars[absorber_mask]          # [N_graphs, n_scalars]
+        # 1. Compute Global Query per graph (Average of all absorbers in the graph)
+        # batch[absorber_mask] maps each absorber to its graph index
+        q_global = scatter_add(scalars[absorber_mask], batch[absorber_mask], dim=0, dim_size=int(batch.max()) + 1)
+        count = scatter_add(torch.ones_like(batch[absorber_mask]), batch[absorber_mask], dim=0, dim_size=int(batch.max()) + 1).clamp(min=1).unsqueeze(1)
+        q_global = q_global / count  # [N_graphs, n_scalars]
+
+        # 2. Expand query to all nodes in the graph
         q_expanded = q_global[batch]               # [N_nodes, n_scalars]
         
         # Attention scores

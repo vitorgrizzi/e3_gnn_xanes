@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from e3nn import o3
+from torch_scatter import scatter_add
 
 from src.model import MultiScaleGaussianBasis, AtomicEmbedding, CustomInteractionBlock, AbsorberQueryAttention
 
@@ -133,15 +134,26 @@ class XANES_E3GNN(nn.Module):
         l1_all = h[:, v_range[0]:v_range[1]].reshape(-1, self.mul_1, 3)
         l2_all = h[:, t_range[0]:t_range[1]].reshape(-1, self.mul_2, 5)
         
-        # Absorber-specific features
+        # Absorber-specific features aggregation (Linear combination of sites)
         mask = data.absorber_mask
-        s_a = scalars_all[mask] 
-        v_a = l1_all[mask]      
-        t_a = l2_all[mask]      
+        batch_abs = batch[mask]
+        num_graphs = int(batch.max()) + 1
         
-        # Invariant norms of higher-order features
-        norm_v = torch.sum(v_a ** 2, dim=-1)   # [N_graph, mul_1]
-        norm_t = torch.sum(t_a ** 2, dim=-1)   # [N_graph, mul_2]
+        s_site = scalars_all[mask] 
+        v_site = l1_all[mask]      
+        t_site = l2_all[mask]      
+        
+        # Invariant norms per site
+        nv_site = torch.sum(v_site ** 2, dim=-1)   # [N_absorbers, mul_1]
+        nt_site = torch.sum(t_site ** 2, dim=-1)   # [N_absorbers, mul_2]
+
+        # Average features across absorbers per graph
+        s_a = scatter_add(s_site, batch_abs, dim=0, dim_size=num_graphs)
+        norm_v = scatter_add(nv_site, batch_abs, dim=0, dim_size=num_graphs)
+        norm_t = scatter_add(nt_site, batch_abs, dim=0, dim_size=num_graphs)
+        
+        n_abs = scatter_add(torch.ones_like(batch_abs, dtype=torch.float), batch_abs, dim=0, dim_size=num_graphs).clamp(min=1).unsqueeze(1)
+        s_a, norm_v, norm_t = s_a / n_abs, norm_v / n_abs, norm_t / n_abs
         
         # Context Pooling
         c = self.pooling(h, mask, batch)         # [N_graph, mul_0]

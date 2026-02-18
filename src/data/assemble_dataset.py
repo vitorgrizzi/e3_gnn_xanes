@@ -92,7 +92,7 @@ def parse_fdmnes_input(filepath):
 
 def save_to_database(dataset, db_path):
     # Connect to database (creates it if it doesn't exist)
-    with connect(db_path + 'xanes_dataset.db', append=False) as db: # Append=False ensures we start fresh if the file exists
+    with connect(db_path + '/xanes_dataset.db', append=False) as db: # Append=False ensures we start fresh if the file exists
         
         for atoms in dataset:
             # Although ASE DB can store 'info' dicts automatically, we store in `data`

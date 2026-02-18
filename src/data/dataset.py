@@ -23,20 +23,20 @@ class XANESDataset(InMemoryDataset):
       - Absorber atoms tagged with ``tag == 1``.
       - XANES spectrum stored in ``row.data['xanes']`` as an (N, 2) array.
 
-    For structures with *multiple* absorber atoms, this dataset creates
-    **one graph per absorber site** (same structure, different absorber mask)
+    For structures with multiple absorber atoms, this dataset creates
+    one graph per absorber site (same structure, different absorber mask)
     so the model predicts a per-site spectrum.
 
     Each ``Data`` object carries:
-        * ``z``             – (N,) atomic numbers
-        * ``pos``           – (N, 3) Cartesian positions
-        * ``cell``          – (3, 3) lattice matrix (row-vector convention)
-        * ``edge_index``    – (2, E) directed edges
-        * ``edge_shift``    – (E, 3) Cartesian PBC shift for each edge
-        * ``absorber_mask`` – (N,) bool, True for the single absorber site
-        * ``y``             – (1, N_E) interpolated XANES spectrum
+        * ``z``               (N,) atomic numbers
+        * ``pos``             (N, 3) Cartesian positions
+        * ``cell``            (3, 3) lattice matrix (row-vector convention)
+        * ``edge_index``      (2, E) directed edges
+        * ``edge_shift``      (E, 3) Cartesian PBC shift for each edge
+        * ``absorber_mask``   (N,) bool, True for the single absorber site
+        * ``y``               (1, N_E) interpolated XANES spectrum
     """
-
+    
     def __init__(
         self,
         root: str,
@@ -103,6 +103,7 @@ class XANESDataset(InMemoryDataset):
                     np.array(atoms.get_cell()), dtype=torch.float
                 )  # (3, 3)
 
+
                 # --- PBC-aware neighbour list ---
                 # 'i' source, 'j' destination, 'S' shift in fractional coords,
                 # 'D' Cartesian distance vector  (D = pos[j]-pos[i]+S@cell)
@@ -117,11 +118,12 @@ class XANESDataset(InMemoryDataset):
                     S @ np.array(atoms.get_cell()), dtype=torch.float
                 )  # (E, 3)
 
+
                 # --- Spectrum ---
                 raw_spectrum = np.array(row.data.get("xanes"))
                 if raw_spectrum is None or raw_spectrum.ndim != 2:
                     print(
-                        f"  ⚠  Skipping row id={row.id}: missing / invalid "
+                        f"Skipping row id={row.id}: missing / invalid "
                         f"spectrum (shape={getattr(raw_spectrum, 'shape', None)})"
                     )
                     continue
@@ -132,35 +134,35 @@ class XANESDataset(InMemoryDataset):
                 interp_y = np.interp(target_e, raw_e, raw_y)
                 y = torch.tensor(interp_y, dtype=torch.float).unsqueeze(0)  # (1, N_E)
 
+
                 # --- Absorber sites ---
                 tags = atoms.get_tags()
                 absorber_indices = np.where(tags == 1)[0]
 
                 if len(absorber_indices) == 0:
                     print(
-                        f"  ⚠  Skipping row id={row.id}: no absorber tag found"
+                        f"Skipping row id={row.id}: no absorber tag found"
                     )
                     continue
 
-                # One Data object per absorber site
-                for abs_idx in absorber_indices:
-                    absorber_mask = torch.zeros(len(z), dtype=torch.bool)
-                    absorber_mask[abs_idx] = True
+                # One Data object per structure, marking ALL absorbers
+                absorber_mask = torch.zeros(len(z), dtype=torch.bool)
+                absorber_mask[absorber_indices] = True
 
-                    data = Data(
-                        z=z,
-                        pos=pos,
-                        cell=cell,
-                        edge_index=edge_index,
-                        edge_shift=edge_shift,
-                        absorber_mask=absorber_mask,
-                        y=y,
-                    )
+                data = Data(
+                    z=z,
+                    pos=pos,
+                    cell=cell,
+                    edge_index=edge_index,
+                    edge_shift=edge_shift,
+                    absorber_mask=absorber_mask,
+                    y=y,
+                )
 
-                    if self.pre_transform is not None:
-                        data = self.pre_transform(data)
+                if self.pre_transform is not None:
+                    data = self.pre_transform(data)
 
-                    data_list.append(data)
+                data_list.append(data)
 
         print(f"Processed {len(data_list)} graphs from {self.db_path}")
         self.save(data_list, self.processed_paths[0])
