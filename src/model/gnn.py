@@ -123,8 +123,8 @@ class XANES_E3GNN(nn.Module):
         # Slice features by irrep type using stored multiplicities
         current_idx = 0
         slices = []
-        for mul, ir in self.irreps_hidden:
-            length = mul * ir.dim
+        for multiplicity, irrep in self.irreps_hidden:
+            length = multiplicity * irrep.dim
             slices.append((current_idx, current_idx + length))
             current_idx += length
             
@@ -144,8 +144,8 @@ class XANES_E3GNN(nn.Module):
         t_site = l2_all[mask]      
         
         # Invariant norms per site
-        nv_site = torch.sum(v_site ** 2, dim=-1)   # [N_absorbers, mul_1]
-        nt_site = torch.sum(t_site ** 2, dim=-1)   # [N_absorbers, mul_2]
+        nv_site = torch.sum(v_site ** 2, dim=-1) # [N_absorbers, mul_1]
+        nt_site = torch.sum(t_site ** 2, dim=-1) # [N_absorbers, mul_2]
 
         # Average features across absorbers per graph
         s_a = scatter_add(s_site, batch_abs, dim=0, dim_size=num_graphs)
@@ -156,7 +156,7 @@ class XANES_E3GNN(nn.Module):
         s_a, norm_v, norm_t = s_a / n_abs, norm_v / n_abs, norm_t / n_abs
         
         # Context Pooling
-        c = self.pooling(h, mask, batch)         # [N_graph, mul_0]
+        c = self.pooling(h, mask, batch) # [N_graph, mul_0]
         
         # Concatenate & predict coefficients
         z_readout = torch.cat([s_a, c, norm_v, norm_t], dim=1) 
@@ -165,8 +165,8 @@ class XANES_E3GNN(nn.Module):
         return coeffs
     
     def predict_spectra(self, data, energy_grid):
-        coeffs = self.forward(data)                        # [B, M]
-        energy_grid = energy_grid.to(coeffs.device)        # device guard
-        basis_matrix = self.basis(energy_grid)              # [N_E, M]
+        coeffs = self.forward(data)                  # [B, M]
+        energy_grid = energy_grid.to(coeffs.device)  # device guard
+        basis_matrix = self.basis(energy_grid)       # [N_E, M]
         spectra = torch.matmul(basis_matrix, coeffs.T).T
         return spectra

@@ -87,6 +87,7 @@ def main(cfg: DictConfig):
         emin=cfg.model.emin,
         emax=cfg.model.emax,
         num_energy_points=cfg.model.num_energy_points,
+        preprocess=cfg.data.get('preprocess', False),
     )
     
     # Split (simple random split)
