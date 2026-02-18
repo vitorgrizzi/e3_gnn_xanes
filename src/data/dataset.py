@@ -112,37 +112,11 @@ class XANESDataset(InMemoryDataset):
             n_rows = db.count()
             for row in tqdm(db.select(), total=n_rows, desc="Processing DB"):
                 atoms = row.toatoms()
-
-                # --- Structural tensors ---
-                z = torch.tensor(atoms.get_atomic_numbers(), dtype=torch.long)
-                pos = torch.tensor(atoms.get_positions(), dtype=torch.float)
-                cell = torch.tensor(
-                    np.array(atoms.get_cell()), dtype=torch.float
-                )  # (3, 3)
-
-
-                # --- PBC-aware neighbour list ---
-                # 'i' source, 'j' destination, 'S' shift in fractional coords,
-                # 'D' Cartesian distance vector  (D = pos[j]-pos[i]+S@cell)
-                idx_i, idx_j, S, D = neighbor_list(
-                    "ijSD", atoms, cutoff=self.r_max
-                )
-
-                edge_index = torch.tensor(
-                    np.stack([idx_i, idx_j]), dtype=torch.long
-                )  # (2, E)
-                edge_shift = torch.tensor(
-                    S @ np.array(atoms.get_cell()), dtype=torch.float
-                )  # (E, 3)
-
-
-                # --- Spectrum ---
+                
+                # Extract target spectrum
                 raw_spectrum = np.array(row.data.get("xanes"))
                 if raw_spectrum is None or raw_spectrum.ndim != 2:
-                    print(
-                        f"Skipping row id={row.id}: missing / invalid "
-                        f"spectrum (shape={getattr(raw_spectrum, 'shape', None)})"
-                    )
+                    print(f"Skipping row id={row.id}: missing / invalid spectrum")
                     continue
 
                 sort_idx = np.argsort(raw_spectrum[:, 0])
@@ -151,36 +125,61 @@ class XANESDataset(InMemoryDataset):
                 interp_y = np.interp(target_e, raw_e, raw_y)
                 y = torch.tensor(interp_y, dtype=torch.float).unsqueeze(0)  # (1, N_E)
 
-
-                # --- Absorber sites ---
-                tags = atoms.get_tags()
-                absorber_indices = np.where(tags == 1)[0]
-
-                if len(absorber_indices) == 0:
-                    print(
-                        f"Skipping row id={row.id}: no absorber tag found"
-                    )
+                # Use helper to build graph
+                try:
+                    data = atoms_to_graph(atoms, r_max=self.r_max)
+                    data.y = y # Add target
+                    
+                    if self.pre_transform is not None:
+                        data = self.pre_transform(data)
+                        
+                    data_list.append(data)
+                except ValueError as e:
+                    print(f"Skipping row id={row.id}: {e}")
                     continue
-
-                # One Data object per structure, marking ALL absorbers
-                absorber_mask = torch.zeros(len(z), dtype=torch.bool)
-                absorber_mask[absorber_indices] = True
-
-                data = Data(
-                    z=z,
-                    pos=pos,
-                    cell=cell,
-                    edge_index=edge_index,
-                    edge_shift=edge_shift,
-                    absorber_mask=absorber_mask,
-                    y=y,
-                )
-
-                if self.pre_transform is not None:
-                    data = self.pre_transform(data)
-
-                data_list.append(data)
 
         print(f"Processed {len(data_list)} graphs from {self.db_path}")
         self.save(data_list, self.processed_paths[0])
+
+
+def atoms_to_graph(atoms, r_max=5.0):
+    """
+    Converts an ASE Atoms object into a PyG Data object ready for E3GNN.
+    
+    Args:
+        atoms (ase.Atoms): The structural data with PBC and tags.
+        r_max (float): Neighbor cutoff radius.
         
+    Returns:
+        torch_geometric.data.Data: Prepared graph.
+    """
+    # 1. Structural tensors
+    z = torch.tensor(atoms.get_atomic_numbers(), dtype=torch.long)
+    pos = torch.tensor(atoms.get_positions(), dtype=torch.float)
+    cell = torch.tensor(np.array(atoms.get_cell()), dtype=torch.float)  # (3, 3)
+
+    # 2. PBC-aware neighbour list
+    idx_i, idx_j, S, D = neighbor_list("ijSD", atoms, cutoff=r_max)
+
+    edge_index = torch.tensor(np.stack([idx_i, idx_j]), dtype=torch.long)  # (2, E)
+    edge_shift = torch.tensor(S @ np.array(atoms.get_cell()), dtype=torch.float)  # (E, 3)
+
+    # 3. Absorber sites
+    tags = atoms.get_tags()
+    absorber_indices = np.where(tags == 1)[0]
+
+    if len(absorber_indices) == 0:
+        raise ValueError("No absorber tag (tag=1) found in structure.")
+
+    absorber_mask = torch.zeros(len(z), dtype=torch.bool)
+    absorber_mask[absorber_indices] = True
+
+    data = Data(
+        z=z,
+        pos=pos,
+        cell=cell,
+        edge_index=edge_index,
+        edge_shift=edge_shift,
+        absorber_mask=absorber_mask,
+    )
+    return data
