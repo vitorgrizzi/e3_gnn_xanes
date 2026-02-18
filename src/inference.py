@@ -71,7 +71,8 @@ def main():
     parser.add_argument("--config", type=str, default="configs/config.yaml", help="Path to configuration file")
     parser.add_argument("--structure", type=str, required=True, help="Path to structure file (CIF, POSCAR, XYZ)")
     parser.add_argument("--output", type=str, default="prediction.png", help="Path to save the plot")
-    parser.add_argument("--tag_absorbers", type=int, nargs='+', help="Indices of absorber atoms (set tag=1)")
+    parser.add_argument("--tag_absorbers", type=int, nargs='+', help="Specific indices of absorber atoms (set tag=1)")
+    parser.add_argument("--absorber_z", type=int, help="Atomic number (Z) of absorbers to auto-tag")
     
     args = parser.parse_args()
     
@@ -83,10 +84,24 @@ def main():
     print(f"Reading structure from {args.structure}...")
     atoms = read(args.structure)
     
-    # Update tags if provided manually, otherwise assume the file has them
+    tags = np.zeros(len(atoms), dtype=int)
+    
+    # Option A: Automatic tagging by atomic number (Z)
+    if args.absorber_z is not None:
+        z_array = atoms.get_atomic_numbers()
+        indices = np.where(z_array == args.absorber_z)[0]
+        if len(indices) == 0:
+            print(f"Warning: No atoms with Z={args.absorber_z} found in structure.")
+        else:
+            print(f"Auto-tagged {len(indices)} atoms with Z={args.absorber_z} as absorbers.")
+            tags[indices] = 1
+            
+    # Option B: Manual tagging by index (overwrites/adds to Z-tagging)
     if args.tag_absorbers is not None:
-        tags = np.zeros(len(atoms), dtype=int)
         tags[args.tag_absorbers] = 1
+
+    # Apply tags if any were specified
+    if args.absorber_z is not None or args.tag_absorbers is not None:
         atoms.set_tags(tags)
     
     # 3. Predict
@@ -106,7 +121,7 @@ def main():
         
     except ValueError as e:
         print(f"Error: {e}")
-        print("Tip: Make sure the structure has absorber atoms tagged (tag=1) or use --tag_absorbers.")
+        print("Tip: Make sure the structure has absorber atoms tagged (tag=1) or use --absorber_z or --tag_absorbers.")
 
 if __name__ == "__main__":
     main()
