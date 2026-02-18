@@ -90,12 +90,9 @@ def main(cfg: DictConfig):
         preprocess=cfg.data.get('preprocess', False),
     )
     
-    # Split (simple random split)
-    n = len(dataset)
-    n_train = int(0.8 * n)
-    perm = torch.randperm(n)
-    train_dataset = dataset[perm[:n_train]]
-    val_dataset = dataset[perm[n_train:]]
+    # Split (random split)
+    g = torch.Generator().manual_seed(42) # Set a seed for reproducibility
+    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [0.8, 0.2], generator=g)
     
     train_loader = DataLoader(
         train_dataset, batch_size=cfg.training.batch_size,

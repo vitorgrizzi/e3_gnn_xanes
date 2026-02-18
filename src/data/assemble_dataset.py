@@ -92,26 +92,26 @@ def parse_fdmnes_input(filepath):
 
 def save_to_database(dataset, db_path):
     # Connect to database (creates it if it doesn't exist)
-    with connect(db_path + '/xanes_dataset.db', append=False) as db: # Append=False ensures we start fresh if the file exists
+    with connect(os.path.join(db_path, 'xanes_data.db'), append=False) as db: # append=False ensures we start fresh if the file exists
         
         for atoms in dataset:
             # Although ASE DB can store 'info' dicts automatically, we store in `data`
             # parameter that is designed for array-like objects. 
             spectrum = atoms.info.pop('FDMNES-xanes', None)
             source = atoms.info.pop('source_dir', 'unknown')
-            
+            Z_abs = atoms[atoms.get_tags()].get_atomic_numbers()[0]         
 
             # key_value_pairs: Searchable metadata (values must be scalars or strings)
             # data: Heavy arrays (Spectra, Forces), stored as binary
             db.write(atoms, 
                      data={'xanes': spectrum}, 
                      key_value_pairs={'source': source, 
-                                      'absorber_z': 26,
+                                      'absorber_z': Z_abs,
                                       'n_atoms': len(atoms)})
             
-    print(f"Saved {len(dataset)} structures to SQLite database: {db_path}")
+    print(f"Saved {len(dataset)} structures to SQLite database: {db_filename}")
 
-def process_directory_tree(root_dir):
+def process_directory_tree(root_dir, db_save_dir='.'):
     """
     Recursively searches directories for FDMNES data and compiles an ASE trajectory.
     """
@@ -148,7 +148,7 @@ def process_directory_tree(root_dir):
             # --- Extract Structure ---
             z_abs, abs_idx, cell_data, atoms_list = parse_fdmnes_input(input_path)
             
-            if not atoms_list:
+            if not atoms_list or abs_idx is None:
                 print(f"Skipping {root}: Incomplete structure data.")
                 continue
 
@@ -188,8 +188,12 @@ def process_directory_tree(root_dir):
 
     # Save Dataset to SQLite database
     if dataset:
-        save_to_database(dataset, root_dir)
+        save_to_database(dataset, db_save_dir)
     else:
         print("\nNo valid data found.")
 
-process_directory_tree('/lcrc/project/Bio_catalysis/lpretzie/fm_catal/convRuns')
+if __name__ == "__main__":
+    data_path = '/lcrc/project/Bio_catalysis/lpretzie/fm_catal/convRuns'
+    output_path = '/lcrc/globalscratch/vferreiragrizzi' # path to store the DB
+    
+    process_directory_tree(data_path, output_path)
