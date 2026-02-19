@@ -54,10 +54,8 @@ class XANESDataset(InMemoryDataset):
             root: Root directory where processed PyG files are cached.
             db_path: Path to the ASE SQLite database file.
             r_max: Cutoff radius (Å) for graph connectivity.
-            emin / emax / num_energy_points: Target energy grid for spectrum
-                interpolation.
-            preprocess: If True, forces reprocessing of the dataset even if
-                        processed files exist.
+            emin / emax / num_energy_points: Target energy grid for spectrum interpolation.
+            preprocess: If True, forces reprocessing of the dataset even if processed files exist.
         """
         self.db_path = db_path
         self.r_max = r_max
@@ -66,47 +64,42 @@ class XANESDataset(InMemoryDataset):
         self.num_energy_points = num_energy_points
         self.target_energy_grid = torch.linspace(emin, emax, num_energy_points)
         
-        # Super init triggers processing if files are missing
-        # We want to control this.
+        # 1. Force re-processing if requested
+        processed_file = self.processed_file_names[0]
+        full_cache_path = os.path.join(root, "processed", processed_file)
+        if preprocess and os.path.exists(full_cache_path):
+            print(f"Preprocess=True: Deleting cache to force rebuild: {processed_file}")
+            os.remove(full_cache_path)
+
+        # 2. Super init triggers process() automatically if files are missing
         super().__init__(root, transform, pre_transform)
-        
-        if preprocess and self.db_path is not None:
-             # Force re-processing
-             if os.path.exists(self.processed_paths[0]):
-                 print(f"Preprocess=True: Deleting {self.processed_paths[0]} to force rebuild.")
-                 os.remove(self.processed_paths[0])
-             self.process()
-        
-        # Ensure we have data
-        if not os.path.exists(self.processed_paths[0]) and self.db_path is not None:
-             print("Processed files not found. Processing...")
-             self.process()
-             
+        # 'pre_transform' is applied only when the graph is created during process(); changes are saved to disk.
+        # 'transform' is applied to each graph after it is loaded from the cache; changes are not saved to disk.
+
+        # 3. Load processed data into memory
         if os.path.exists(self.processed_paths[0]):
             self.load(self.processed_paths[0])
+        # Note that processed_path is created by the super().__init__() method
 
     # ------------------------------------------------------------------
     # PyG boilerplate
     # ------------------------------------------------------------------
     @property
-    def raw_file_names(self):
-        if self.db_path is not None:
-            return [os.path.basename(self.db_path)]
-        return []
-
-    @property
     def processed_file_names(self):
-        return ["data.pt"]
+        return [f"data_rmax{self.r_max}_e{self.num_energy_points}.pt"]
 
     # ------------------------------------------------------------------
     # Processing the database and turning it into a graph
     # ------------------------------------------------------------------
+    # Note that process() is called automatically by the super().__init__() method
+    # if the processed files do not exist. It is a magic method present in the super 
+    # class that PyG expect us to override.
     def process(self):
         if self.db_path is None:
             return
 
         data_list = []
-        target_e = self.target_energy_grid.numpy()
+        uniform_energy_grid = self.target_energy_grid.numpy()
 
         with connect(self.db_path) as db:
             n_rows = db.count()
@@ -122,7 +115,7 @@ class XANESDataset(InMemoryDataset):
                 sort_idx = np.argsort(raw_spectrum[:, 0])
                 raw_e = raw_spectrum[sort_idx, 0]
                 raw_y = raw_spectrum[sort_idx, 1]
-                interp_y = np.interp(target_e, raw_e, raw_y)
+                interp_y = np.interp(uniform_energy_grid, raw_e, raw_y)
                 y = torch.tensor(interp_y, dtype=torch.float).unsqueeze(0)  # (1, N_E)
 
                 # Use helper to build graph
@@ -154,32 +147,68 @@ def atoms_to_graph(atoms, r_max=5.0):
         torch_geometric.data.Data: Prepared graph.
     """
     # 1. Structural tensors
-    z = torch.tensor(atoms.get_atomic_numbers(), dtype=torch.long)
-    pos = torch.tensor(atoms.get_positions(), dtype=torch.float)
-    cell = torch.tensor(np.array(atoms.get_cell()), dtype=torch.float)  # (3, 3)
+    z = torch.tensor(atoms.get_atomic_numbers(), dtype=torch.long) # (N,)
+    pos = torch.tensor(atoms.get_positions(), dtype=torch.float) # (N, 3)
+    cell = torch.tensor(np.array(atoms.get_cell()), dtype=torch.float) # (3, 3)
 
     # 2. PBC-aware neighbour list
-    idx_i, idx_j, S, D = neighbor_list("ijSD", atoms, cutoff=r_max)
-
-    edge_index = torch.tensor(np.stack([idx_i, idx_j]), dtype=torch.long)  # (2, E)
-    edge_shift = torch.tensor(S @ np.array(atoms.get_cell()), dtype=torch.float)  # (E, 3)
+    idx_i, idx_j, S = neighbor_list("ijS", atoms, cutoff=r_max) # [(E,), (E,), (E, 3)]
+    edge_index = torch.tensor(np.stack([idx_i, idx_j], axis=0), dtype=torch.long) # (2, E)
+    edge_shift = torch.tensor(S @ cell, dtype=torch.float) # (E, 3)
+    # `S` is a matrix of integer PBC shifts for each edge, D = r_j - r_i + S @ cell, where 
+    # r_i and r_j are always the (3,) positions of the atoms in the unit cell.
 
     # 3. Absorber sites
-    tags = atoms.get_tags()
-    absorber_indices = np.where(tags == 1)[0]
+    absorber_mask = torch.tensor(atoms.get_tags(), dtype=torch.bool)
 
-    if len(absorber_indices) == 0:
+    if not absorber_mask.any():
         raise ValueError("No absorber tag (tag=1) found in structure.")
 
-    absorber_mask = torch.zeros(len(z), dtype=torch.bool)
-    absorber_mask[absorber_indices] = True
-
+    # 4. Create PyG Data object
     data = Data(
-        z=z,
+        edge_index=edge_index, 
         pos=pos,
+        z=z, # kwargs from here on
         cell=cell,
-        edge_index=edge_index,
         edge_shift=edge_shift,
         absorber_mask=absorber_mask,
-    )
+    ) # Note that 'y' is added later in the process() method.
+
     return data
+
+
+if __name__ == "__main__":
+    # Example usage / Testing script
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Test XANES dataset processing.")
+    parser.add_argument("--db", type=str, default="xanes_data.db", help="Path to ASE SQLite database.")
+    parser.add_argument("--root", type=str, default="data/processed_test", help="Root directory for PyG processing.")
+    parser.add_argument("--rmax", type=float, default=5.0, help="Neighbor cutoff radius.")
+    args = parser.parse_args()
+
+    # Initialize dataset
+    print(f"--- Initializing Dataset ---")
+    print(f"DB Path: {args.db}")
+    print(f"Processed Root: {args.root}")
+    
+    dataset = XANESDataset(
+        root=args.root,
+        db_path=args.db,
+        r_max=args.rmax,
+        preprocess=True # Force rebuild for testing
+    )
+
+    print(f"\n--- Dataset Summary ---")
+    print(f"Number of graphs: {len(dataset)}")
+    
+    if len(dataset) > 0:
+        sample = dataset[0]
+        print(f"\n--- Sample Graph Inspection ---")
+        print(f"Data object: {sample}")
+        print(f"z (Atomic numbers): {sample.z.shape} -> {sample.z[:5]}...")
+        print(f"pos (Positions): {sample.pos.shape}")
+        print(f"edge_index: {sample.edge_index.shape}")
+        print(f"edge_shift: {sample.edge_shift.shape}")
+        print(f"y (Spectrum): {sample.y.shape}")
+        print(f"Absorber count: {sample.absorber_mask.sum().item()}")

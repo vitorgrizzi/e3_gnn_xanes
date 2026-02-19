@@ -92,14 +92,14 @@ def parse_fdmnes_input(filepath):
 
 def save_to_database(dataset, db_path):
     # Connect to database (creates it if it doesn't exist)
-    with connect(os.path.join(db_path, 'xanes_data.db'), append=False) as db: # append=False ensures we start fresh if the file exists
+    with connect(os.path.join(db_path, 'xanes_data.db'), append=False) as db: # append=False to start fresh if the file exists
         
         for atoms in dataset:
             # Although ASE DB can store 'info' dicts automatically, we store in `data`
             # parameter that is designed for array-like objects. 
             spectrum = atoms.info.pop('FDMNES-xanes', None)
             source = atoms.info.pop('source_dir', 'unknown')
-            Z_abs = atoms[atoms.get_tags()].get_atomic_numbers()[0]         
+            Z_abs = atoms.get_atomic_numbers()[atoms.get_tags() == 1][0]  
 
             # key_value_pairs: Searchable metadata (values must be scalars or strings)
             # data: Heavy arrays (Spectra, Forces), stored as binary
@@ -113,7 +113,7 @@ def save_to_database(dataset, db_path):
 
 def process_directory_tree(root_dir, db_save_dir='.'):
     """
-    Recursively searches directories for FDMNES data and compiles an ASE trajectory.
+    Recursively searches directories for FDMNES data and creates an ASE database.
     """
     dataset = []
     
