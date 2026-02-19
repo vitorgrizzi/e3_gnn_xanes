@@ -2,4 +2,13 @@ best_model.pt
 __pycache__/
 *.py[cod]
 *$py.class
-src/data/processed/
+
+# Data and processed files
+**/processed/
+data/
+
+# Hydra and wandb
+outputs/
+multirun/
+.hydra/
+wandb/
