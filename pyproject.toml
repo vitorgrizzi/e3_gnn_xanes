@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "e3gnn-xanes"
+version = "0.1.0"
+description = "E(3)-Equivariant GNN for XANES spectra prediction"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Vitor Ferreira Grizzi" }
+]
+dependencies = [] 
+# Note: Dependencies are managed via requirements.txt to handle specialized 
+# PyTorch + CUDA + PyG versions that are difficult to specify in standard metadata.
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
