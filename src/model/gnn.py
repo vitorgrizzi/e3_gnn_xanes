@@ -168,5 +168,5 @@ class XANES_E3GNN(nn.Module):
         coeffs = self.forward(data)                  # [B, M]
         energy_grid = energy_grid.to(coeffs.device)  # device guard
         basis_matrix = self.basis(energy_grid)       # [N_E, M]
-        spectra = torch.matmul(basis_matrix, coeffs.T).T
+        spectra = torch.matmul(basis_matrix, coeffs.T).T # [B, N_E]
         return spectra

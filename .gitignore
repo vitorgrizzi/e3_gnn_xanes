@@ -2,3 +2,4 @@ best_model.pt
 __pycache__/
 *.py[cod]
 *$py.class
+src/data/processed/

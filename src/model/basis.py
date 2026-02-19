@@ -8,6 +8,10 @@ class MultiScaleGaussianBasis(nn.Module):
     
     This module generates a basis of Gaussian functions with varying widths (scales)
     to capture both sharp features (like the white line) and broad oscillations.
+
+    OBS1: We are defining three possible widths for the Gaussian via the `scales_ratios` 
+          parameter instead of allowing the model to learn the widths. This is done to 
+          reduce the number of parameters and make the loss landscape smoother (easier to train).
     """
     def __init__(self, n_basis=128, emin=-10.0, emax=50.0, scales_ratios=[0.1, 0.5, 1.0]):
         """

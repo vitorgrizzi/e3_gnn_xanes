@@ -116,7 +116,8 @@ class XANESDataset(InMemoryDataset):
                 raw_e = raw_spectrum[sort_idx, 0]
                 raw_y = raw_spectrum[sort_idx, 1]
                 interp_y = np.interp(uniform_energy_grid, raw_e, raw_y)
-                y = torch.tensor(interp_y, dtype=torch.float).unsqueeze(0)  # (1, N_E)
+                y = torch.tensor(interp_y, dtype=torch.float).unsqueeze(0) # (1, N_E) xanes on uniform energy grid
+                # (1, N_E) to indicate PyG that `y` is a graph property, not a node property.
 
                 # Use helper to build graph
                 try:
@@ -149,14 +150,15 @@ def atoms_to_graph(atoms, r_max=5.0):
     # 1. Structural tensors
     z = torch.tensor(atoms.get_atomic_numbers(), dtype=torch.long) # (N,)
     pos = torch.tensor(atoms.get_positions(), dtype=torch.float) # (N, 3)
-    cell = torch.tensor(np.array(atoms.get_cell()), dtype=torch.float) # (3, 3)
+    cell = torch.tensor(atoms.get_cell(), dtype=torch.float) # (3, 3)
 
     # 2. PBC-aware neighbour list
     idx_i, idx_j, S = neighbor_list("ijS", atoms, cutoff=r_max) # [(E,), (E,), (E, 3)]
     edge_index = torch.tensor(np.stack([idx_i, idx_j], axis=0), dtype=torch.long) # (2, E)
-    edge_shift = torch.tensor(S @ cell, dtype=torch.float) # (E, 3)
-    # `S` is a matrix of integer PBC shifts for each edge, D = r_j - r_i + S @ cell, where 
-    # r_i and r_j are always the (3,) positions of the atoms in the unit cell.
+    edge_shift = torch.tensor(S @ cell.numpy(), dtype=torch.float) # (E, 3)
+    # `S` is a matrix of integer PBC shifts for each edge. True PBC distance is thus 
+    # D = r_j - r_i + S @ cell, where r_i and r_j are always the (x,y,z) of the atoms 
+    # in the "real" unit cell.
 
     # 3. Absorber sites
     absorber_mask = torch.tensor(atoms.get_tags(), dtype=torch.bool)

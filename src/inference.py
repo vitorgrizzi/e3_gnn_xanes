@@ -49,7 +49,7 @@ def load_model(checkpoint_path, config_path=None):
     
     return model, cfg
 
-def predict(model, atoms, r_max):
+def predict(model, atoms, r_max, num_energy_points=100):
     """Predicts the spectrum for an ASE Atoms object."""
     # Convert Atoms to PyG Data
     data = atoms_to_graph(atoms, r_max=r_max)
@@ -58,9 +58,12 @@ def predict(model, atoms, r_max):
     data.batch = torch.zeros(data.num_nodes, dtype=torch.long)
     
     with torch.no_grad():
-        # The model uses predict_spectra method
-        # We need the energy grid from the model's basis settings
-        energy_grid = torch.linspace(model.basis.emin, model.basis.emax, 150) # Matching dataset default
+        # We use the energy grid parameters from the model's basis settings
+        energy_grid = torch.linspace(
+            model.basis.emin, 
+            model.basis.emax, 
+            num_energy_points
+        ) 
         spectrum = model.predict_spectra(data, energy_grid)
     
     return energy_grid.numpy(), spectrum.squeeze().numpy()
@@ -107,7 +110,12 @@ def main():
     # 3. Predict
     print("Running inference...")
     try:
-        energies, intensities = predict(model, atoms, r_max=cfg.model.r_max)
+        energies, intensities = predict(
+            model, 
+            atoms, 
+            r_max=cfg.model.r_max, 
+            num_energy_points=cfg.model.num_energy_points
+        )
         
         # 4. Save/Plot
         plt.figure(figsize=(8, 5))
