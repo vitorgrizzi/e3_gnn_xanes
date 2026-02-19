@@ -1,8 +1,8 @@
 import os
 import numpy as np
 from ase import Atoms
-from ase.io import write
 from ase.db import connect
+import argparse
 
 def parse_fdmnes_input(filepath):
     """
@@ -92,14 +92,14 @@ def parse_fdmnes_input(filepath):
 
 def save_to_database(dataset, db_path):
     # Connect to database (creates it if it doesn't exist)
-    with connect(os.path.join(db_path, 'xanes_data.db'), append=False) as db: # append=False to start fresh if the file exists
+    with connect(os.path.join(db_path, 'xanes_data_test.db'), append=False) as db: # append=False ensures we start fresh if the file exists
         
         for atoms in dataset:
             # Although ASE DB can store 'info' dicts automatically, we store in `data`
             # parameter that is designed for array-like objects. 
             spectrum = atoms.info.pop('FDMNES-xanes', None)
             source = atoms.info.pop('source_dir', 'unknown')
-            Z_abs = atoms.get_atomic_numbers()[atoms.get_tags() == 1][0]  
+            Z_abs = atoms.get_atomic_numbers()[atoms.get_tags() == 1][0]       
 
             # key_value_pairs: Searchable metadata (values must be scalars or strings)
             # data: Heavy arrays (Spectra, Forces), stored as binary
@@ -109,11 +109,11 @@ def save_to_database(dataset, db_path):
                                       'absorber_z': Z_abs,
                                       'n_atoms': len(atoms)})
             
-    print(f"Saved {len(dataset)} structures to SQLite database: {db_filename}")
+    print(f"Saved {len(dataset)} structures to SQLite database: {os.path.join(db_path, 'xanes_data_test.db')}")
 
 def process_directory_tree(root_dir, db_save_dir='.'):
     """
-    Recursively searches directories for FDMNES data and creates an ASE database.
+    Recursively searches directories for FDMNES data and compiles an ASE trajectory.
     """
     dataset = []
     
@@ -173,6 +173,9 @@ def process_directory_tree(root_dir, db_save_dir='.'):
             tags = np.zeros(len(atoms), dtype=int)
             tags[abs_idx] = 1
             atoms.set_tags(tags)
+            if not any(tags):
+                print(f"Skipping {root}: No matching Z_absorber.")
+                continue
 
             # Storing spectrum data
             atoms.info['FDMNES-xanes'] = spectrum
@@ -193,7 +196,11 @@ def process_directory_tree(root_dir, db_save_dir='.'):
         print("\nNo valid data found.")
 
 if __name__ == "__main__":
-    data_path = '/lcrc/project/Bio_catalysis/lpretzie/fm_catal/convRuns'
-    output_path = '/lcrc/globalscratch/vferreiragrizzi' # path to store the DB
+
+    parser = argparse.ArgumentParser(description="Create XANES dataset from FDMNES calculations.")
     
-    process_directory_tree(data_path, output_path)
+    parser.add_argument("--data_path", type=str, default="/lcrc/project/Bio_catalysis/lpretzie/fm_catal/convRuns", help="Root directory for FDMNES calculations.")
+    parser.add_argument("--output_path", type=str, default="/lcrc/globalscratch/vferreiragrizzi/gnn_xanes", help="Path to save database.")
+    args = parser.parse_args()
+    
+    process_directory_tree(args.data_path, args.output_path)
