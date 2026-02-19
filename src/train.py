@@ -56,7 +56,6 @@ def validate(model, loader, criterion, device, energy_grid):
     return total_loss / n, total_mse / n, total_grad / n
 
 
-@hydra.main(version_base=None, config_path="../configs", config_name="config")
 def main(cfg: DictConfig):
     print(OmegaConf.to_yaml(cfg))
     
@@ -169,4 +168,24 @@ def main(cfg: DictConfig):
                 break
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    from hydra import initialize_config_dir, compose
+    
+    parser = argparse.ArgumentParser(description="Train XANES E3GNN model.")
+    parser.add_argument(
+        "--config", 
+        type=str, 
+        default="configs/config.yaml", 
+        help="Path to the config.yaml file."
+    )
+    args = parser.parse_args()
+    
+    # 1. Resolve paths
+    config_path = os.path.abspath(args.config)
+    config_dir = os.path.dirname(config_path)
+    config_name = os.path.basename(config_path).replace(".yaml", "").replace(".yml", "")
+    
+    # 2. Initialize Hydra from the directory of the provided config file
+    with initialize_config_dir(version_base=None, config_dir=config_dir):
+        cfg = compose(config_name=config_name)
+        main(cfg)

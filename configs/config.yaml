@@ -12,9 +12,10 @@ model:
   num_basis: 128
   num_radial: 10
   basis_scales: [0.1, 0.5, 1.0]
-  emin: -10.0
-  emax: 50.0
-  num_energy_points: 100
+  emin: -30.0
+  emax: 100.0
+  num_energy_points: 150
+  # emin, emax, num_energy_points must match the values used in the dataset creation
 
 training:
   lr: 1e-3
@@ -27,7 +28,7 @@ training:
   device: "auto"
 
 data:
-  root: "data/xanes_dataset"
+  root: "/lcrc/globalscratch/vferreiragrizzi/gnn_xanes/"
   db_path: null # path to xanes_dataset.db (set via CLI or override)
   num_workers: 0
   r_max: 5.0
