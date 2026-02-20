@@ -140,6 +140,17 @@ class XANESDataset(InMemoryDataset):
                     print(f"Skipping row id={row.id}: {e}")
                     continue
 
+        if len(data_list) > 0:
+            # Scale targets so the mean of their maximums is exactly 1.0
+            maxes = [d.y.max().item() for d in data_list]
+            average_max = sum(maxes) / len(maxes)
+            
+            if average_max > 0:
+                scale_factor = 1.0 / average_max
+                print(f"Dataset scaling factor: {scale_factor:.4f} (Average max before scaling was {average_max:.4f})")
+                for d in data_list:
+                    d.y = d.y * scale_factor
+                    
         print(f"Processed {len(data_list)} graphs from {self.db_path}")
         self.save(data_list, self.processed_paths[0])
 

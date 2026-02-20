@@ -1,14 +1,23 @@
 import torch
+from tqdm import tqdm
 from src.data.dataset import XANESDataset
 from src.model import XANES_E3GNN
 
 print("Loading Dataset...")
-db = XANESDataset('data/processed_test', 'xanes_data.db', preprocess=False)
+db = XANESDataset('.', processed_path='C:/Users/Vitor/Downloads/data_rmax5.0_e150.pt')
 
-if len(db) > 0:
-    y = db[0].y
-    print(f"Data y shape: {y.shape}")
-    print(f"Data y min / max / mean / std: {y.min().item():.2f} / {y.max().item():.2f} / {y.mean().item():.2f} / {y.std().item():.2f}")
+maxes = []
+mins = []
+means = []
+for i in tqdm(range(len(db))):
+    y = db[i].y
+    maxes.append(y.max().item())
+    mins.append(y.min().item())
+
+
+print(f"Max y: {max(maxes):.2f}")
+print(f"Min y: {min(mins):.2f}")
+print(f'maxes mean {sum(maxes)/len(maxes):.2f}')
     
 #     print("\nChecking Model Forward Pass...")
 #     model = XANES_E3GNN(
