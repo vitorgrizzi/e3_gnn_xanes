@@ -87,11 +87,27 @@ def run_training(model, train_loader, val_loader, config):
     
     best_val_loss = float('inf')
     epochs_without_improvement = 0
+    start_epoch = 0
     save_path = config.get('save_path')
     log_path = config.get('log_path')
+    load_path = config.get('load_path')
 
-    # Initialize local text log file
-    if log_path:
+    # Load checkpoint if provided
+    if load_path and os.path.exists(load_path):
+        print(f"Loading checkpoint from {load_path}")
+        checkpoint = torch.load(load_path, map_location=device)
+        
+        # We assume the new checkpoint format (dict with 'model_state_dict')
+        # based on user feedback to not support backwards compatibility.
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        start_epoch = checkpoint['epoch']
+        best_val_loss = checkpoint.get('best_val_loss', float('inf'))
+        print(f"Resuming training from epoch {start_epoch + 1}")
+
+    # Initialize local text log file if starting fresh
+    if log_path and start_epoch == 0:
         with open(log_path, 'w') as f:
             f.write("=== XANES E3GNN Training Log ===\n")
             f.write(f"Device: {device}\n")
@@ -101,8 +117,11 @@ def run_training(model, train_loader, val_loader, config):
             f.write("-" * 40 + "\n")
             f.write(f"{'Epoch':<8} {'Train Loss':<12} {'Val Loss':<12} {'Train MSE':<12} {'Val MSE':<12} {'LR':<10} {'GPU (GB)':<10} {'Time (m)':<10}\n")
             f.write("-" * 110 + "\n")
+    elif log_path and start_epoch > 0:
+        with open(log_path, 'a') as f:
+            f.write(f"--- Resumed training from epoch {start_epoch + 1} ---\n")
 
-    for epoch in range(config['epochs']):
+    for epoch in range(start_epoch, config['epochs']):
         epoch_start = time.time()
         train_loss, train_mse, train_grad = train_epoch(
             model, train_loader, optimizer, criterion, device, energy_grid, config.get('grad_clip')
@@ -146,7 +165,13 @@ def run_training(model, train_loader, val_loader, config):
             best_val_loss = val_loss
             epochs_without_improvement = 0
             if save_path:
-                torch.save(model.state_dict(), save_path)
+                torch.save({
+                    'epoch': epoch + 1,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'scheduler_state_dict': scheduler.state_dict(),
+                    'best_val_loss': best_val_loss
+                }, save_path)
         else:
             epochs_without_improvement += 1
             if epochs_without_improvement >= config['patience']:
@@ -230,7 +255,8 @@ def main(cfg: DictConfig):
         'criterion': criterion,
         'energy_grid': energy_grid,
         'save_path': hydra.utils.to_absolute_path(cfg.training.save_path) if cfg.training.save_path else None,
-        'log_path': hydra.utils.to_absolute_path(cfg.training.log_path) if cfg.training.log_path else None,
+        'load_path': hydra.utils.to_absolute_path(cfg.training.load_path) if cfg.training.get('load_path') else None,
+        'log_path': hydra.utils.to_absolute_path(cfg.training.log_path) if cfg.training.get('log_path') else None,
         'patience': cfg.training.patience,
         'grad_clip': cfg.training.grad_clip,
         'device': device

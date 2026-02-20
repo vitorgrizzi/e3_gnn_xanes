@@ -25,6 +25,7 @@ training:
   patience: 15
   grad_clip: 5.0
   save_path: "best_model.pt"
+  load_path: null
   log_path: "training.log"
   device: "auto"
 
