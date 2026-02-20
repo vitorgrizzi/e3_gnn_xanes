@@ -32,6 +32,7 @@ training:
 data:
   root: "/lcrc/globalscratch/vferreiragrizzi/gnn_xanes/"
   db_path: null # path to xanes_dataset.db (set via CLI or override)
+  processed_path: null # direct path to .pt file (set via CLI or override)
   num_workers: 0
   r_max: 5.0
   preprocess: false

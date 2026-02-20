@@ -41,6 +41,7 @@ class XANESDataset(InMemoryDataset):
         self,
         root: str,
         db_path: str | None = None,
+        processed_path: str | None = None,
         r_max: float = 5.0,
         emin: float = -30.0,
         emax: float = 100.0,
@@ -53,6 +54,7 @@ class XANESDataset(InMemoryDataset):
         Args:
             root: Root directory where processed PyG files are cached.
             db_path: Path to the ASE SQLite database file.
+            processed_path: Optional direct path to a .pt file. Overrides root/db logic if provided.
             r_max: Cutoff radius (Å) for graph connectivity.
             emin / emax / num_energy_points: Target energy grid for spectrum interpolation.
             preprocess: If True, forces reprocessing of the dataset even if processed files exist.
@@ -64,19 +66,25 @@ class XANESDataset(InMemoryDataset):
         self.num_energy_points = num_energy_points
         self.target_energy_grid = torch.linspace(emin, emax, num_energy_points)
         
-        # 1. Force re-processing if requested
+        # 1. Direct path loading
+        if processed_path is not None and os.path.exists(processed_path):
+            super().__init__(root, transform, pre_transform)
+            self.load(processed_path)
+            return
+
+        # 2. Force re-processing if requested
         processed_file = self.processed_file_names[0]
         full_cache_path = os.path.join(root, "processed", processed_file)
         if preprocess and os.path.exists(full_cache_path):
             print(f"Preprocess=True: Deleting cache to force rebuild: {processed_file}")
             os.remove(full_cache_path)
 
-        # 2. Super init triggers process() automatically if files are missing
+        # 3. Super init triggers process() automatically if files are missing
         super().__init__(root, transform, pre_transform)
         # 'pre_transform' is applied only when the graph is created during process(); changes are saved to disk.
         # 'transform' is applied to each graph after it is loaded from the cache; changes are not saved to disk.
 
-        # 3. Load processed data into memory
+        # 4. Load processed data into memory
         if os.path.exists(self.processed_paths[0]):
             self.load(self.processed_paths[0])
         # Note that processed_path is created by the super().__init__() method

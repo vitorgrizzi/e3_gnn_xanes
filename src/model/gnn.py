@@ -143,9 +143,9 @@ class XANES_E3GNN(nn.Module):
         v_site = l1_all[mask]      
         t_site = l2_all[mask]      
         
-        # Invariant norms per site
-        nv_site = torch.sum(v_site ** 2, dim=-1) # [N_absorbers, mul_1]
-        nt_site = torch.sum(t_site ** 2, dim=-1) # [N_absorbers, mul_2]
+        # Invariant norms per site (more stable than simple sum of squares)
+        nv_site = torch.norm(v_site, dim=-1) # [N_absorbers, mul_1]
+        nt_site = torch.norm(t_site, dim=-1) # [N_absorbers, mul_2]
 
         # Average features across absorbers per graph
         s_a = scatter_add(s_site, batch_abs, dim=0, dim_size=num_graphs)

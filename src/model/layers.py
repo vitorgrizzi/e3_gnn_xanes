@@ -107,6 +107,9 @@ class CustomInteractionBlock(nn.Module):
         self.sc = None
         if self.has_residual:
             self.sc = o3.Linear(self.irreps_in, self.irreps_out)
+            
+        # --- Normalization for stability ---
+        self.norm = o3.Norm(self.irreps_out)
 
     def radial_basis(self, length):
         """Gaussian radial basis: exp(-(d - mu)^2 / 2sigma^2)."""
@@ -123,12 +126,15 @@ class CustomInteractionBlock(nn.Module):
         x_j = x[edge_src]
         m_ij = self.tp(x_j, edge_attr, weights)
         
-        # 3. Aggregate messages at destination nodes
+        # 3. Aggregate messages at destination nodes (Mean is more stable than Add)
         if HAS_TORCH_SCATTER:
-            m_i = scatter(m_ij, edge_dst, dim=0, dim_size=x.shape[0], reduce='add')
+            m_i = scatter(m_ij, edge_dst, dim=0, dim_size=x.shape[0], reduce='mean')
         else:
             m_i = torch.zeros(x.shape[0], m_ij.shape[1], device=x.device, dtype=x.dtype)
+            count = torch.zeros(x.shape[0], 1, device=x.device, dtype=x.dtype)
             m_i.index_add_(0, edge_dst, m_ij)
+            count.index_add_(0, edge_dst, torch.ones_like(m_ij[:,:1]))
+            m_i = m_i / count.clamp(min=1)
 
         # 4. Gated non-linearity
         m_i = self.gate(m_i)
@@ -137,4 +143,5 @@ class CustomInteractionBlock(nn.Module):
         if self.sc is not None:
             m_i = m_i + self.sc(x)
             
-        return m_i
+        # 6. Final normalization per layer
+        return self.norm(m_i)

@@ -205,10 +205,12 @@ def main(cfg: DictConfig):
     # 3. Data Loading
     root_path = hydra.utils.to_absolute_path(cfg.data.root)
     db_path = hydra.utils.to_absolute_path(cfg.data.db_path) if cfg.data.db_path else None
+    proc_path = hydra.utils.to_absolute_path(cfg.data.processed_path) if cfg.data.processed_path else None
 
     dataset = XANESDataset(
         root=root_path,
         db_path=db_path,
+        processed_path=proc_path,
         r_max=cfg.data.r_max,
         emin=cfg.model.emin,
         emax=cfg.model.emax,
