@@ -28,6 +28,10 @@ def verify():
     
     criterion = SpectrumLoss(lambda_grad=0.5)
     
+    from torch_geometric.loader import DataLoader
+    train_loader = DataLoader(dataset, batch_size=4)
+    val_loader = DataLoader(dataset[:4], batch_size=4)
+    
     config = {
         'lr': 1e-3,
         'batch_size': 4,
@@ -35,11 +39,13 @@ def verify():
         'criterion': criterion,
         'energy_grid': energy_grid,
         'save_path': 'best_model.pt',
+        'patience': 10,
+        'grad_clip': 5.0
     }
     
     print("Starting Dummy Training Loop...")
     try:
-        run_training(model, dataset, dataset[:4], config)
+        run_training(model, train_loader, val_loader, config)
         print("SUCCESS: Training loop ran without crashing.")
     except Exception as e:
         print(f"FAILED: Training loop crashed.")

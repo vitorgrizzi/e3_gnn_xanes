@@ -37,4 +37,4 @@ data:
 wandb:
   project: "xanes_e3gnn"
   entity: null
-  mode: "online" # set to 'disabled' to turn off wandb
+  mode: "disabled" # set to 'disabled' to turn off wandb

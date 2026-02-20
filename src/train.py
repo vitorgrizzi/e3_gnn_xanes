@@ -56,6 +56,66 @@ def validate(model, loader, criterion, device, energy_grid):
     return total_loss / n, total_mse / n, total_grad / n
 
 
+def run_training(model, train_loader, val_loader, config):
+    """
+    Run the full training loop with given loaders and config.
+    
+    Args:
+        model: XANES_E3GNN model.
+        train_loader: DataLoader for training set.
+        val_loader: DataLoader for validation set.
+        config: Dictionary or OmegaConf containing lr, epochs, criterion, energy_grid, etc.
+    """
+    device = config.get('device', next(model.parameters()).device)
+    optimizer = optim.AdamW(model.parameters(), lr=config['lr'])
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=config['patience'] // 2, verbose=True
+    )
+    criterion = config['criterion']
+    energy_grid = config['energy_grid']
+    
+    best_val_loss = float('inf')
+    epochs_without_improvement = 0
+    save_path = config.get('save_path')
+    
+    for epoch in range(config['epochs']):
+        train_loss, train_mse, train_grad = train_epoch(
+            model, train_loader, optimizer, criterion, device, energy_grid, config.get('grad_clip')
+        )
+        val_loss, val_mse, val_grad = validate(model, val_loader, criterion, device, energy_grid)
+        
+        scheduler.step(val_loss)
+        current_lr = optimizer.param_groups[0]['lr']
+        
+        print(
+            f"Epoch {epoch+1}/{config['epochs']} | "
+            f"Train: {train_loss:.4f} | Val: {val_loss:.4f} | LR: {current_lr:.2e}"
+        )
+        
+        # Log to wandb if active
+        if wandb.run is not None:
+            wandb.log({
+                "epoch": epoch,
+                "train_loss": train_loss,
+                "val_loss": val_loss,
+                "train_mse": train_mse,
+                "val_mse": val_mse,
+                "lr": current_lr
+            })
+            
+        # Checkpointing
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            epochs_without_improvement = 0
+            if save_path:
+                torch.save(model.state_dict(), save_path)
+        else:
+            epochs_without_improvement += 1
+            if epochs_without_improvement >= config['patience']:
+                print(f"Early stopping at epoch {epoch+1}")
+                break
+
+
 def main(cfg: DictConfig):
     print(OmegaConf.to_yaml(cfg))
     
@@ -89,8 +149,8 @@ def main(cfg: DictConfig):
         preprocess=cfg.data.get('preprocess', False),
     )
     
-    # Split (random split)
-    g = torch.Generator().manual_seed(42) # Set a seed for reproducibility
+    # Split
+    g = torch.Generator().manual_seed(42)
     train_dataset, val_dataset = torch.utils.data.random_split(dataset, [0.8, 0.2], generator=g)
     
     train_loader = DataLoader(
@@ -118,54 +178,23 @@ def main(cfg: DictConfig):
         emax=cfg.model.emax
     ).to(device)
     
-    # 5. Optimization
-    optimizer = optim.AdamW(model.parameters(), lr=cfg.training.lr)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', factor=0.5, patience=cfg.training.patience // 2, verbose=True
-    )
+    # 5. Optimization & Criterion
     criterion = SpectrumLoss(lambda_grad=cfg.training.lambda_grad)
     energy_grid = torch.linspace(cfg.model.emin, cfg.model.emax, cfg.model.num_energy_points).to(device)
     
-    # 6. Training Loop
-    best_val_loss = float('inf')
-    epochs_without_improvement = 0
-    save_path = hydra.utils.to_absolute_path(cfg.training.save_path) if cfg.training.save_path else None
+    config = {
+        'lr': cfg.training.lr,
+        'epochs': cfg.training.epochs,
+        'criterion': criterion,
+        'energy_grid': energy_grid,
+        'save_path': hydra.utils.to_absolute_path(cfg.training.save_path) if cfg.training.save_path else None,
+        'patience': cfg.training.patience,
+        'grad_clip': cfg.training.grad_clip,
+        'device': device
+    }
     
-    for epoch in range(cfg.training.epochs):
-        train_loss, train_mse, train_grad = train_epoch(
-            model, train_loader, optimizer, criterion, device, energy_grid, cfg.training.grad_clip
-        )
-        val_loss, val_mse, val_grad = validate(model, val_loader, criterion, device, energy_grid)
-        
-        scheduler.step(val_loss)
-        current_lr = optimizer.param_groups[0]['lr']
-        
-        print(
-            f"Epoch {epoch+1}/{cfg.training.epochs} | "
-            f"Train: {train_loss:.4f} | Val: {val_loss:.4f} | LR: {current_lr:.2e}"
-        )
-        
-        if cfg.wandb.mode != 'disabled':
-            wandb.log({
-                "epoch": epoch,
-                "train_loss": train_loss,
-                "val_loss": val_loss,
-                "train_mse": train_mse,
-                "val_mse": val_mse,
-                "lr": current_lr
-            })
-            
-        # Checkpointing
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            epochs_without_improvement = 0
-            if save_path:
-                torch.save(model.state_dict(), save_path)
-        else:
-            epochs_without_improvement += 1
-            if epochs_without_improvement >= cfg.training.patience:
-                print(f"Early stopping at epoch {epoch+1}")
-                break
+    # 6. Run Training
+    run_training(model, train_loader, val_loader, config)
 
 if __name__ == "__main__":
     import argparse
