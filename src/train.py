@@ -1,4 +1,5 @@
 import os
+import time
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import torch
@@ -98,21 +99,24 @@ def run_training(model, train_loader, val_loader, config):
             f.write(f"Max Epochs: {config['epochs']}\n")
             f.write(f"Patience: {config['patience']}\n")
             f.write("-" * 40 + "\n")
-            f.write(f"{'Epoch':<8} {'Train Loss':<12} {'Val Loss':<12} {'Train MSE':<12} {'Val MSE':<12} {'LR':<10} {'GPU (GB)':<10}\n")
-            f.write("-" * 100 + "\n")
+            f.write(f"{'Epoch':<8} {'Train Loss':<12} {'Val Loss':<12} {'Train MSE':<12} {'Val MSE':<12} {'LR':<10} {'GPU (GB)':<10} {'Time (m)':<10}\n")
+            f.write("-" * 110 + "\n")
 
     for epoch in range(config['epochs']):
+        epoch_start = time.time()
         train_loss, train_mse, train_grad = train_epoch(
             model, train_loader, optimizer, criterion, device, energy_grid, config.get('grad_clip')
         )
         val_loss, val_mse, val_grad = validate(model, val_loader, criterion, device, energy_grid)
         
+        epoch_time_min = (time.time() - epoch_start) / 60
         scheduler.step(val_loss)
         current_lr = optimizer.param_groups[0]['lr']
         
         print(
             f"Epoch {epoch+1}/{config['epochs']} | "
-            f"Train: {train_loss:.4f} | Val: {val_loss:.4f} | LR: {current_lr:.2e}"
+            f"Train: {train_loss:.4f} | Val: {val_loss:.4f} | "
+            f"Time: {epoch_time_min:.2f}m | LR: {current_lr:.2e}"
         )
         
         # Log to wandb if active
@@ -124,7 +128,8 @@ def run_training(model, train_loader, val_loader, config):
                 "train_mse": train_mse,
                 "val_mse": val_mse,
                 "lr": current_lr,
-                "gpu_mem_gb": get_gpu_memory()
+                "gpu_mem_gb": get_gpu_memory(),
+                "epoch_time_min": epoch_time_min
             })
             
         # Log to local text file
@@ -133,7 +138,7 @@ def run_training(model, train_loader, val_loader, config):
             with open(log_path, 'a') as f:
                 f.write(
                     f"{epoch+1:<8} {train_loss:<12.4f} {val_loss:<12.4f} "
-                    f"{train_mse:<12.4f} {val_mse:<12.4f} {current_lr:<10.2e} {gpu_mem:<10.2f}\n"
+                    f"{train_mse:<12.4f} {val_mse:<12.4f} {current_lr:<10.2e} {gpu_mem:<10.2f} {epoch_time_min:<10.2f}\n"
                 )
             
         # Checkpointing
