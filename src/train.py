@@ -69,7 +69,7 @@ def run_training(model, train_loader, val_loader, config):
     device = config.get('device', next(model.parameters()).device)
     optimizer = optim.AdamW(model.parameters(), lr=config['lr'])
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', factor=0.5, patience=config['patience'] // 2, verbose=True
+        optimizer, mode='min', factor=0.5, patience=config['patience'] // 2
     )
     criterion = config['criterion']
     energy_grid = config['energy_grid']
