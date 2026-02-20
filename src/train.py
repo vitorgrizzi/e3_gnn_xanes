@@ -11,12 +11,22 @@ from src.loss import SpectrumLoss
 from src.data.dataset import XANESDataset
 
 
+def get_gpu_memory():
+    if torch.cuda.is_available():
+        # returns memory in GB
+        return torch.cuda.max_memory_allocated() / 1024**3
+    return 0
+
+
 def train_epoch(model, loader, optimizer, criterion, device, energy_grid, grad_clip=None):
     model.train()
     total_loss = 0
     total_mse = 0
     total_grad = 0
     
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+        
     for data in tqdm(loader, desc="Training", leave=False):
         data = data.to(device)
         optimizer.zero_grad()
@@ -77,7 +87,20 @@ def run_training(model, train_loader, val_loader, config):
     best_val_loss = float('inf')
     epochs_without_improvement = 0
     save_path = config.get('save_path')
-    
+    log_path = config.get('log_path')
+
+    # Initialize local text log file
+    if log_path:
+        with open(log_path, 'w') as f:
+            f.write("=== XANES E3GNN Training Log ===\n")
+            f.write(f"Device: {device}\n")
+            f.write(f"Learning Rate: {config['lr']}\n")
+            f.write(f"Max Epochs: {config['epochs']}\n")
+            f.write(f"Patience: {config['patience']}\n")
+            f.write("-" * 40 + "\n")
+            f.write(f"{'Epoch':<8} {'Train Loss':<12} {'Val Loss':<12} {'Train MSE':<12} {'Val MSE':<12} {'LR':<10} {'GPU (GB)':<10}\n")
+            f.write("-" * 100 + "\n")
+
     for epoch in range(config['epochs']):
         train_loss, train_mse, train_grad = train_epoch(
             model, train_loader, optimizer, criterion, device, energy_grid, config.get('grad_clip')
@@ -100,8 +123,18 @@ def run_training(model, train_loader, val_loader, config):
                 "val_loss": val_loss,
                 "train_mse": train_mse,
                 "val_mse": val_mse,
-                "lr": current_lr
+                "lr": current_lr,
+                "gpu_mem_gb": get_gpu_memory()
             })
+            
+        # Log to local text file
+        if log_path:
+            gpu_mem = get_gpu_memory()
+            with open(log_path, 'a') as f:
+                f.write(
+                    f"{epoch+1:<8} {train_loss:<12.4f} {val_loss:<12.4f} "
+                    f"{train_mse:<12.4f} {val_mse:<12.4f} {current_lr:<10.2e} {gpu_mem:<10.2f}\n"
+                )
             
         # Checkpointing
         if val_loss < best_val_loss:
@@ -121,6 +154,10 @@ def main(cfg: DictConfig):
     
     # 1. Setup WandB
     if cfg.wandb.mode != 'disabled':
+        # Safely attempt to login. Will look for WANDB_API_KEY env var
+        # or you can pass it here: wandb.login(key="YOUR_KEY")
+        wandb.login()
+        
         wandb.init(
             project=cfg.wandb.project,
             entity=cfg.wandb.entity,
@@ -188,6 +225,7 @@ def main(cfg: DictConfig):
         'criterion': criterion,
         'energy_grid': energy_grid,
         'save_path': hydra.utils.to_absolute_path(cfg.training.save_path) if cfg.training.save_path else None,
+        'log_path': hydra.utils.to_absolute_path(cfg.training.log_path) if cfg.training.log_path else None,
         'patience': cfg.training.patience,
         'grad_clip': cfg.training.grad_clip,
         'device': device
