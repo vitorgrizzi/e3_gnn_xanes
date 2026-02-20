@@ -83,10 +83,16 @@ def parse_fdmnes_input(filepath):
                 reading_crystal = False
                 reading_atoms = False
     
+    
+
     # When no `absorber` is specified, all atoms with `Z_absorber` are absorbers
+    Z_numbers = np.array(atom_data, dtype=int)[:, 0]
     if absorber_idx is None:
-        z_numbers = np.array(atom_data, dtype=int)[:, 0]
-        absorber_idx = [i for i, Z in enumerate(z_numbers) if Z == z_absorber]
+        absorber_idx = [i for i, Z in enumerate(Z_numbers) if Z == z_absorber]
+    else:
+        # `absorber` overrides `Z_absorber` in case both clash 
+        z_absorber = Z_numbers[absorber_idx][0]
+        # assuming that if `absorber` has multiple values, they all correspond to the same element
 
     return z_absorber, absorber_idx, cell_params, atom_data
 

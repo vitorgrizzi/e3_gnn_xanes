@@ -11,7 +11,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from src import XANES_E3GNN, SpectrumLoss, run_training
-from src.data import create_dummy_data
+from src.data.dataset import create_dummy_data
 
 
 def verify():

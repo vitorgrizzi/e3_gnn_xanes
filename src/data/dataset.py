@@ -177,6 +177,58 @@ def atoms_to_graph(atoms, r_max=5.0):
     ) # Note that 'y' is added later in the process() method.
 
     return data
+def create_dummy_data(num_graphs=2, num_energy_points=50, emin=-10.0, emax=50.0):
+    """
+    Creates a synthetic dataset for testing purposes.
+    
+    Returns:
+        tuple: (list of torch_geometric.data.Data, energy_grid)
+    """
+    energy_grid = torch.linspace(emin, emax, num_energy_points)
+    data_list = []
+    
+    for _ in range(num_graphs):
+        num_nodes = torch.randint(8, 16, (1,)).item()
+        
+        # Structural tensors
+        z = torch.randint(1, 100, (num_nodes,), dtype=torch.long)
+        pos = torch.randn(num_nodes, 3)
+        cell = torch.eye(3) * 10.0
+        
+        # Random edges
+        num_edges = num_nodes * 4
+        edge_index = torch.stack([
+            torch.randint(0, num_nodes, (num_edges,)),
+            torch.randint(0, num_nodes, (num_edges,))
+        ], dim=0)
+        
+        # Remove self-loops
+        mask = edge_index[0] != edge_index[1]
+        edge_index = edge_index[:, mask]
+        
+        # PBC edge shifts
+        edge_shift = torch.randn(edge_index.size(1), 3)
+        
+        # Absorber site
+        absorber_mask = torch.zeros(num_nodes, dtype=torch.bool)
+        absorber_idx = torch.randint(0, num_nodes, (1,)).item()
+        absorber_mask[absorber_idx] = True
+        
+        # Target spectrum
+        y = torch.randn(1, num_energy_points)
+        
+        data = Data(
+            z=z,
+            pos=pos,
+            cell=cell,
+            edge_index=edge_index,
+            edge_shift=edge_shift,
+            absorber_mask=absorber_mask,
+            y=y
+        )
+        data_list.append(data)
+        
+    return data_list, energy_grid
 
 
 if __name__ == "__main__":
