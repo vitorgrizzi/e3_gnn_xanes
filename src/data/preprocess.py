@@ -13,7 +13,7 @@ from src.data.dataset import XANESDataset
 def main():
     # 1. Setup Parser
     parser = argparse.ArgumentParser(description="Preprocess XANES ASE database into PyG graphs.")
-    parser.add_argument("db_path", type=str, help="Path to the raw ASE SQLite database (.db)")
+    parser.add_argument("--db_path", type=str, help="Path to the raw ASE SQLite database (.db)")
     parser.add_argument("--root", type=str, default=None, help="Root directory for processed files (defaults to config.yaml value)")
     parser.add_argument("--config", type=str, default="configs/config.yaml", help="Path to project config file")
     parser.add_argument("--rmax", type=float, default=None, help="Cutoff radius (Å)")

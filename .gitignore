@@ -11,4 +11,4 @@ data/
 outputs/
 multirun/
 .hydra/
-wandb/
+wandb/s
