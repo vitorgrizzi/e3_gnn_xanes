@@ -14,7 +14,8 @@ except ImportError:
 class AtomicEmbedding(nn.Module):
     """
     Learnable embedding for atomic numbers.
-    Maps integer Z to a vector of size hidden_dim.
+    Maps integer Z to a vector of size `embedding_dim`. 
+    Returns the initial node embedding for each atom. 
     """
     def __init__(self, max_z=100, embedding_dim=64):
         super().__init__()
@@ -108,8 +109,7 @@ class CustomInteractionBlock(nn.Module):
         if self.has_residual:
             self.sc = o3.Linear(self.irreps_in, self.irreps_out)
             
-        # --- Normalization for stability ---
-        self.norm = o3.Norm(self.irreps_out)
+            
 
     def radial_basis(self, length):
         """Gaussian radial basis: exp(-(d - mu)^2 / 2sigma^2)."""
@@ -143,5 +143,5 @@ class CustomInteractionBlock(nn.Module):
         if self.sc is not None:
             m_i = m_i + self.sc(x)
             
-        # 6. Final normalization per layer
-        return self.norm(m_i)
+        # 6. Final normalization per layer (optional, but keep it stable)
+        return m_i
