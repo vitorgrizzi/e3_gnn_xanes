@@ -38,12 +38,14 @@ class CustomInteractionBlock(nn.Module):
                  irreps_out,
                  irreps_sh,
                  number_of_radial_basis_functions,
-                 steps=None):
+                 steps=None,
+                 dropout=0.1):
         super().__init__()
         
         self.irreps_in = o3.Irreps(irreps_in)
         self.irreps_out = o3.Irreps(irreps_out)
         self.irreps_sh = o3.Irreps(irreps_sh)
+        self.dropout = nn.Dropout(dropout)
         
         # --- Build Gate irreps ---
         # Gate needs: scalar activations for l=0, and one gate scalar per
@@ -95,7 +97,7 @@ class CustomInteractionBlock(nn.Module):
             self.radial_sigma = 1.0
             self.register_buffer(
                 'radial_centers',
-                torch.linspace(0, 5.0, self.num_radial),
+                torch.linspace(0.0, 5.0, self.num_radial),
             )
 
         self.fc = FullyConnectedNet(
@@ -116,15 +118,17 @@ class CustomInteractionBlock(nn.Module):
         d = length.unsqueeze(-1) - self.radial_centers.unsqueeze(0)
         return torch.exp(-(d ** 2) / (2 * self.radial_sigma ** 2))
 
-    def forward(self, x, edge_vec=None, edge_attr=None, edge_length=None,
-                edge_src=None, edge_dst=None):
-        # 1. Radial embedding → TP weights
+    def forward(self, x, edge_attr=None, edge_length=None, edge_src=None, edge_dst=None):
+        # 1. Radial embedding -> TP weights
         radial = self.radial_basis(edge_length)
         weights = self.fc(radial)
         
         # 2. Message computation via tensor product
         x_j = x[edge_src]
         m_ij = self.tp(x_j, edge_attr, weights)
+        
+        # Apply dropout to messages before aggregation
+        m_ij = self.dropout(m_ij)
         
         # 3. Aggregate messages at destination nodes (Mean is more stable than Add)
         if HAS_TORCH_SCATTER:
@@ -143,5 +147,4 @@ class CustomInteractionBlock(nn.Module):
         if self.sc is not None:
             m_i = m_i + self.sc(x)
             
-        # 6. Final normalization per layer (optional, but keep it stable)
         return m_i
