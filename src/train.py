@@ -78,7 +78,7 @@ def run_training(model, train_loader, val_loader, config):
         config: Dictionary or OmegaConf containing lr, epochs, criterion, energy_grid, etc.
     """
     device = config.get('device', next(model.parameters()).device)
-    optimizer = optim.AdamW(model.parameters(), lr=config['lr'])
+    optimizer = optim.AdamW(model.parameters(), lr=config['lr'], weight_decay=config.get('weight_decay', 0.01))
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=0.5, patience=config['patience'] // 2
     )
@@ -244,7 +244,8 @@ def main(cfg: DictConfig):
         num_radial=cfg.model.num_radial,
         basis_scales=cfg.model.basis_scales,
         emin=cfg.model.emin,
-        emax=cfg.model.emax
+        emax=cfg.model.emax,
+        dropout=cfg.model.get('dropout', 0.1)
     ).to(device)
     
     # 5. Optimization & Criterion
@@ -261,6 +262,7 @@ def main(cfg: DictConfig):
         'log_path': hydra.utils.to_absolute_path(cfg.training.log_path) if cfg.training.get('log_path') else None,
         'patience': cfg.training.patience,
         'grad_clip': cfg.training.grad_clip,
+        'weight_decay': cfg.training.get('weight_decay', 0.01),
         'device': device
     }
     

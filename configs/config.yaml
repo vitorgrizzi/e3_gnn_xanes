@@ -15,12 +15,14 @@ model:
   emin: -30.0
   emax: 100.0
   num_energy_points: 150
+  dropout: 0.1
   # emin, emax, num_energy_points must match the values used in the dataset creation
 
 training:
   lr: 1e-3
-  batch_size: 4
+  batch_size: 8
   epochs: 100
+  weight_decay: 0.05
   lambda_grad: 0.5
   patience: 15
   grad_clip: 5.0

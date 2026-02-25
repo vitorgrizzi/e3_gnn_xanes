@@ -18,7 +18,8 @@ class XANES_E3GNN(nn.Module):
                  num_basis=128,
                  num_radial=10,
                  basis_scales=[0.1, 0.5, 1.0],
-                 emin=-10, emax=50):
+                 emin=-10, emax=50,
+                 dropout=0.1):
         super().__init__()
         
         # Store multiplicities for use in forward()
@@ -47,6 +48,7 @@ class XANES_E3GNN(nn.Module):
                 irreps_sh=self.irreps_sh,
                 number_of_radial_basis_functions=num_radial,
                 steps=torch.linspace(0.0, r_max, num_radial),
+                dropout=dropout,
             )
         )
         
@@ -59,6 +61,7 @@ class XANES_E3GNN(nn.Module):
                     irreps_sh=self.irreps_sh,
                     number_of_radial_basis_functions=num_radial,
                     steps=torch.linspace(0.0, r_max, num_radial),
+                    dropout=dropout,
                 )
              )
              

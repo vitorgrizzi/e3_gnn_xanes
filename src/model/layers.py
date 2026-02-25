@@ -15,10 +15,11 @@ class AtomicEmbedding(nn.Module):
     """
     Learnable embedding for atomic numbers.
     Maps integer Z to a vector of size `embedding_dim`. 
-    Returns the initial node embedding for each atom. 
+    Returns the initial node embedding for each atom type. 
     """
     def __init__(self, max_z=100, embedding_dim=64):
         super().__init__()
+        # Unused entries are never updated and don't hurt learning
         self.embedding = nn.Embedding(max_z + 1, embedding_dim)
         
     def forward(self, z):
