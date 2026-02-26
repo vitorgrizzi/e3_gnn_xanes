@@ -9,7 +9,7 @@ model:
   mul_1: 32     # number of basis functions for l=1
   mul_2: 16     # number of basis functions for l=2
   r_max: 5.0    # maximum radius
-  num_radial: 10 # number of Gaussian radial basis functions used to encode interatomic distances during message passing
+  num_radial: 12 # number of Gaussian radial basis functions used to encode interatomic distances during message passing
   basis_scales: [0.1, 0.5, 1.0] # scales of readout Gaussian basis functions
   num_basis: 128                # number of readout Gaussian basis functions (coeffs)
   emin: -30.0
@@ -19,8 +19,8 @@ model:
   # emin, emax, num_energy_points must match the values used in the dataset creation
 
 training:
-  lr: 1e-3
-  batch_size: 8
+  lr: 5e-4
+  batch_size: 4
   epochs: 100
   weight_decay: 0.05
   lambda_grad: 0.5
@@ -30,6 +30,7 @@ training:
   load_path: null
   log_path: "training.log"
   device: "auto"
+  num_val_samples: 6 # Number of validation plots to generate after training, set to 0 to disable
 
 data:
   root: "/lcrc/globalscratch/vferreiragrizzi/gnn_xanes/"

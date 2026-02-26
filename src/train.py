@@ -10,6 +10,8 @@ import wandb
 from src.model import XANES_E3GNN
 from src.loss import SpectrumLoss
 from src.data.dataset import XANESDataset
+from src.visualization import generate_validation_plots
+from src.inference import load_model
 
 
 def get_gpu_memory():
@@ -67,7 +69,7 @@ def validate(model, loader, criterion, device, energy_grid):
     return total_loss / n, total_mse / n, total_grad / n
 
 
-def run_training(model, train_loader, val_loader, config):
+def run_training(model, train_loader, val_loader, config, model_config=None):
     """
     Run the full training loop with given loaders and config.
     
@@ -76,6 +78,7 @@ def run_training(model, train_loader, val_loader, config):
         train_loader: DataLoader for training set.
         val_loader: DataLoader for validation set.
         config: Dictionary or OmegaConf containing lr, epochs, criterion, energy_grid, etc.
+        model_config: Dictionary containing model hyperparameters for self-contained checkpoints.
     """
     device = config.get('device', next(model.parameters()).device)
     optimizer = optim.AdamW(model.parameters(), lr=config['lr'], weight_decay=config.get('weight_decay', 0.01))
@@ -170,7 +173,8 @@ def run_training(model, train_loader, val_loader, config):
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
                     'scheduler_state_dict': scheduler.state_dict(),
-                    'best_val_loss': best_val_loss
+                    'best_val_loss': best_val_loss,
+                    'model_config': model_config
                 }, save_path)
         else:
             epochs_without_improvement += 1
@@ -267,7 +271,31 @@ def main(cfg: DictConfig):
     }
     
     # 6. Run Training
-    run_training(model, train_loader, val_loader, config)
+    run_training(model, train_loader, val_loader, config, model_config=OmegaConf.to_container(cfg.model, resolve=True))
+
+    # 7. Post-training evaluation plots
+    num_samples = cfg.training.get('num_val_samples', 0)
+    if num_samples > 0 and config['save_path'] and os.path.exists(config['save_path']):
+        print(f"\nTraining finished. Generating {num_samples} validation plots...")
+        try:
+            # Reload the best model to ensure we plot the best results
+            best_model, _ = load_model(config['save_path'])
+            best_model = best_model.to(device)
+            
+            output_dir = "validation_plots"
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = os.path.join(output_dir, "best_model_val_samples.png")
+            
+            generate_validation_plots(
+                model=best_model,
+                val_dataset=val_dataset,
+                energy_grid=energy_grid,
+                num_samples=num_samples,
+                output_path=output_path,
+                device=device
+            )
+        except Exception as e:
+            print(f"Warning: Could not generate validation plots: {e}")
 
 if __name__ == "__main__":
     import argparse

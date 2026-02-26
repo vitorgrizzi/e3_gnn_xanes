@@ -20,34 +20,57 @@ def load_model(checkpoint_path, config_path=None):
     
     If config_path is not provided, it looks for it in the same directory as the checkpoint.
     """
-    if config_path is None:
-        # Default to standard config location or look for a .hydra folder if it exists
+    # Load checkpoint
+    checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu'))
+    
+    # Check if this is a training checkpoint (dict) or a raw state_dict
+    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+        state_dict = checkpoint['model_state_dict']
+        saved_config = checkpoint.get('model_config')
+    else:
+        state_dict = checkpoint
+        saved_config = None
+
+    if config_path is None and saved_config is None:
+        # Default to standard config location
         config_path = "configs/config.yaml" 
     
-    cfg = OmegaConf.load(config_path)
+    if saved_config is not None:
+        print("Using model configuration from checkpoint.")
+        cfg_model = saved_config
+    else:
+        print(f"Loading model configuration from {config_path}...")
+        cfg = OmegaConf.load(config_path)
+        cfg_model = cfg.model
     
     # Initialize model with config parameters
     model = XANES_E3GNN(
-        max_z=cfg.model.max_z,
-        num_layers=cfg.model.num_layers,
-        lmax=cfg.model.lmax,
-        mul_0=cfg.model.mul_0,
-        mul_1=cfg.model.mul_1,
-        mul_2=cfg.model.mul_2,
-        r_max=cfg.model.r_max,
-        num_basis=cfg.model.num_basis,
-        num_radial=cfg.model.num_radial,
-        basis_scales=cfg.model.basis_scales,
-        emin=cfg.model.emin,
-        emax=cfg.model.emax
+        max_z=cfg_model.max_z,
+        num_layers=cfg_model.num_layers,
+        lmax=cfg_model.lmax,
+        mul_0=cfg_model.mul_0,
+        mul_1=cfg_model.mul_1,
+        mul_2=cfg_model.mul_2,
+        r_max=cfg_model.r_max,
+        num_basis=cfg_model.num_basis,
+        num_radial=cfg_model.num_radial,
+        basis_scales=cfg_model.basis_scales,
+        emin=cfg_model.emin,
+        emax=cfg_model.emax
     )
     
-    # Load state dict
-    state_dict = torch.load(checkpoint_path, map_location=torch.device('cpu'))
     model.load_state_dict(state_dict)
     model.eval()
     
-    return model, cfg
+    # If we used a saved_config, we might need a way to return the full cfg
+    # for other parts of the script (like r_max for graph construction).
+    if saved_config is not None:
+        # Create a dummy cfg object that matches what the script expects
+        full_cfg = OmegaConf.create({"model": saved_config})
+    else:
+        full_cfg = cfg
+        
+    return model, full_cfg
 
 def predict(model, atoms, r_max, num_energy_points=100):
     """Predicts the spectrum for an ASE Atoms object."""
