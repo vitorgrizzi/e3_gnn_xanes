@@ -37,7 +37,8 @@ def load_model(checkpoint_path, config_path=None):
     
     if saved_config is not None:
         print("Using model configuration from checkpoint.")
-        cfg_model = saved_config
+        # Wrap in OmegaConf so we can use dot notation even for raw dicts
+        cfg_model = OmegaConf.create(saved_config)
     else:
         print(f"Loading model configuration from {config_path}...")
         cfg = OmegaConf.load(config_path)

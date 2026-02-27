@@ -78,7 +78,7 @@ def generate_validation_plots(
             energies, 
             spectrum_true, 
             spectrum_pred, 
-            title=f"Val Index: {idx}\nMSE: {mse:.6f}",
+            title=f"Val Index: {idx}\nMSE: {mse:.4f}",
             ax=axes[i],
             show_legend=(i == 0)
         )
