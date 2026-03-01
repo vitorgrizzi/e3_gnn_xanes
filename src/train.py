@@ -26,6 +26,7 @@ def train_epoch(model, loader, optimizer, criterion, device, energy_grid, grad_c
     total_loss = 0
     total_mse = 0
     total_grad = 0
+    total_lap = 0
     
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
@@ -35,7 +36,7 @@ def train_epoch(model, loader, optimizer, criterion, device, energy_grid, grad_c
         optimizer.zero_grad()
         
         spectra_pred = model.predict_spectra(data, energy_grid)
-        loss, mse, grad_loss = criterion(spectra_pred, data.y, energy_grid)
+        loss, mse, grad_loss, lap_loss = criterion(spectra_pred, data.y, energy_grid)
         
         loss.backward()
 
@@ -47,9 +48,10 @@ def train_epoch(model, loader, optimizer, criterion, device, energy_grid, grad_c
         total_loss += loss.item() * data.num_graphs
         total_mse += mse.item() * data.num_graphs
         total_grad += grad_loss.item() * data.num_graphs
+        total_lap += lap_loss.item() * data.num_graphs
         
     n = len(loader.dataset)
-    return total_loss / n, total_mse / n, total_grad / n
+    return total_loss / n, total_mse / n, total_grad / n, total_lap / n
 
 
 def validate(model, loader, criterion, device, energy_grid):
@@ -57,16 +59,18 @@ def validate(model, loader, criterion, device, energy_grid):
     total_loss = 0
     total_mse = 0
     total_grad = 0
+    total_lap = 0
     with torch.no_grad():
         for data in loader:
             data = data.to(device)
             spectra_pred = model.predict_spectra(data, energy_grid)
-            loss, mse, grad_loss = criterion(spectra_pred, data.y, energy_grid)
+            loss, mse, grad_loss, lap_loss = criterion(spectra_pred, data.y, energy_grid)
             total_loss += loss.item() * data.num_graphs
             total_mse += mse.item() * data.num_graphs
             total_grad += grad_loss.item() * data.num_graphs
+            total_lap += lap_loss.item() * data.num_graphs
     n = len(loader.dataset)
-    return total_loss / n, total_mse / n, total_grad / n
+    return total_loss / n, total_mse / n, total_grad / n, total_lap / n
 
 
 def run_training(model, train_loader, val_loader, config, model_config=None):
@@ -126,10 +130,10 @@ def run_training(model, train_loader, val_loader, config, model_config=None):
 
     for epoch in range(start_epoch, config['epochs']):
         epoch_start = time.time()
-        train_loss, train_mse, train_grad = train_epoch(
+        train_loss, train_mse, train_grad, train_lap = train_epoch(
             model, train_loader, optimizer, criterion, device, energy_grid, config.get('grad_clip')
         )
-        val_loss, val_mse, val_grad = validate(model, val_loader, criterion, device, energy_grid)
+        val_loss, val_mse, val_grad, val_lap = validate(model, val_loader, criterion, device, energy_grid)
         
         epoch_time_min = (time.time() - epoch_start) / 60
         scheduler.step(val_loss)
@@ -255,12 +259,13 @@ def main(cfg: DictConfig):
     # 5. Optimization & Criterion
     # Setup Loss Function
     lambda_grad = cfg.training.get('lambda_grad', 0.5)
-    alpha = cfg.training.get('alpha', 1.0)
-    criterion = SpectrumLoss(lambda_grad=lambda_grad, alpha=alpha)
+    lambda_lap = cfg.training.get('lambda_lap', 0.0)
+    criterion = SpectrumLoss(lambda_grad=lambda_grad, lambda_lap=lambda_lap)
     energy_grid = torch.linspace(cfg.model.emin, cfg.model.emax, cfg.model.num_energy_points).to(device)
     
     config = {
         'lr': cfg.training.lr,
+        'batch_size': cfg.training.batch_size,
         'epochs': cfg.training.epochs,
         'criterion': criterion,
         'energy_grid': energy_grid,

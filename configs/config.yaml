@@ -24,7 +24,7 @@ training:
   epochs: 100 # number of epochs
   weight_decay: 0.05 # weight decay
   lambda_grad: 0.3 # regularization factor for the gradient matching loss
-  alpha: 1.0 # intensity weight for the spectrum loss
+  lambda_lap: 0.01 # regularization factor for the laplacian (2nd deriv) loss
   patience: 15 # number of epochs to wait for improvement before stopping
   grad_clip: 5.0 # gradient clipping value
   save_path: "best_model.pt" # path to save the best model
