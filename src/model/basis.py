@@ -55,8 +55,8 @@ class MultiScaleGaussianBasis(nn.Module):
             centers_list.append(c)
             sigmas_list.append(torch.full_like(c, sigma))
             
-        self.register_buffer('centers', torch.cat(centers_list))
-        self.register_buffer('sigmas', torch.cat(sigmas_list))
+        self.centers = nn.Parameter(torch.cat(centers_list))
+        self.sigmas = nn.Parameter(torch.cat(sigmas_list))
         
     def forward(self, energy_grid):
         """

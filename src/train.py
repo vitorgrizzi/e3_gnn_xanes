@@ -253,7 +253,10 @@ def main(cfg: DictConfig):
     ).to(device)
     
     # 5. Optimization & Criterion
-    criterion = SpectrumLoss(lambda_grad=cfg.training.lambda_grad)
+    # Setup Loss Function
+    lambda_grad = cfg.training.get('lambda_grad', 0.5)
+    alpha = cfg.training.get('alpha', 1.0)
+    criterion = SpectrumLoss(lambda_grad=lambda_grad, alpha=alpha)
     energy_grid = torch.linspace(cfg.model.emin, cfg.model.emax, cfg.model.num_energy_points).to(device)
     
     config = {

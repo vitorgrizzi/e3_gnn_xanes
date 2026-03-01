@@ -3,44 +3,45 @@ defaults:
 
 model:
   max_z: 92     # maximum atomic number the model can handle, sets the size of AtomicEmbedding lookup table
-  num_layers: 3 # number of message passing layers
+  num_layers: 4 # number of message passing layers
   lmax: 2       # maximum angular momentum
-  mul_0: 64     # number of basis functions for l=0
-  mul_1: 32     # number of basis functions for l=1
-  mul_2: 16     # number of basis functions for l=2
+  mul_0: 32     # number of basis functions for l=0
+  mul_1: 16     # number of basis functions for l=1
+  mul_2: 8      # number of basis functions for l=2
   r_max: 5.0    # maximum radius
   num_radial: 12 # number of Gaussian radial basis functions used to encode interatomic distances during message passing
-  basis_scales: [0.1, 0.5, 1.0] # scales of readout Gaussian basis functions
-  num_basis: 128                # number of readout Gaussian basis functions (coeffs)
-  emin: -30.0
-  emax: 100.0
-  num_energy_points: 150
-  dropout: 0.1
+  basis_scales: [0.5, 0.75, 1.25, 2.0] # intial variances of readout Gaussian basis functions
+  num_basis: 80 # number of readout Gaussian basis functions 
+  emin: -30.0 # minimum energy
+  emax: 100.0 # maximum energy
+  num_energy_points: 150 # number of energy points
+  dropout: 0.05 # dropout rate
   # emin, emax, num_energy_points must match the values used in the dataset creation
 
 training:
-  lr: 5e-4
-  batch_size: 4
-  epochs: 100
-  weight_decay: 0.05
-  lambda_grad: 0.5
-  patience: 15
-  grad_clip: 5.0
-  save_path: "best_model.pt"
-  load_path: null
-  log_path: "training.log"
-  device: "auto"
+  lr: 1e-3 # learning rate
+  batch_size: 4 # batch size
+  epochs: 100 # number of epochs
+  weight_decay: 0.05 # weight decay
+  lambda_grad: 0.3 # regularization factor for the gradient matching loss
+  alpha: 1.0 # intensity weight for the spectrum loss
+  patience: 15 # number of epochs to wait for improvement before stopping
+  grad_clip: 5.0 # gradient clipping value
+  save_path: "best_model.pt" # path to save the best model
+  load_path: null # path to load the model from
+  log_path: "training.log" # path to save the training log
+  device: "auto" # device to use for training
   num_val_samples: 6 # Number of validation plots to generate after training, set to 0 to disable
 
 data:
-  root: "/lcrc/globalscratch/vferreiragrizzi/gnn_xanes/"
+  root: "/lcrc/globalscratch/vferreiragrizzi/gnn_xanes/" # root directory for the dataset
   db_path: null # path to xanes_dataset.db (set via CLI or override)
   processed_path: null # direct path to .pt file (set via CLI or override)
-  num_workers: 0
-  r_max: 5.0
-  preprocess: false
+  num_workers: 0 # number of workers for data loading
+  r_max: 5.0 # maximum radius
+  preprocess: false # whether to preprocess the data
 
 wandb:
-  project: "xanes_e3gnn"
-  entity: null
+  project: "xanes_e3gnn" # project name
+  entity: null # entity name
   mode: "disabled" # set to 'disabled' to turn off wandb

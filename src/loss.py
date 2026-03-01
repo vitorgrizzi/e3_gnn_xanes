@@ -8,10 +8,10 @@ class SpectrumLoss(nn.Module):
     
     Ensures both intensity values and spectral shape (derivatives) are matched.
     """
-    def __init__(self, lambda_grad=0.5):
+    def __init__(self, lambda_grad=0.5, alpha=1.0):
         super().__init__()
         self.lambda_grad = lambda_grad
-        self.mse = nn.MSELoss()
+        self.alpha = alpha
         
     def forward(self, pred_y, true_y, energy_grid=None):
         """
@@ -20,8 +20,10 @@ class SpectrumLoss(nn.Module):
             true_y: [Batch, N_E]
             energy_grid: [N_E] (optional, needed if grid is non-uniform for gradients)
         """
-        # 1. Intensity MSE
-        loss_0 = self.mse(pred_y, true_y)
+        # 1. Intensity MSE (weighted by true intensity)
+        # loss_0 = self.mse(pred_y, true_y)
+        weight = 1.0 + self.alpha * true_y
+        loss_0 = (weight * (pred_y - true_y) ** 2).mean()
         
         # 2. Gradient MSE
         # Compute numerical gradient along energy axis (dim 1)
@@ -30,7 +32,7 @@ class SpectrumLoss(nn.Module):
         diff_pred = pred_y[:, 1:] - pred_y[:, :-1]
         diff_true = true_y[:, 1:] - true_y[:, :-1]
         
-        loss_1 = self.mse(diff_pred, diff_true)
+        loss_1 = ((diff_pred - diff_true) ** 2).mean()
         
         total_loss = loss_0 + self.lambda_grad * loss_1
         return total_loss, loss_0, loss_1
