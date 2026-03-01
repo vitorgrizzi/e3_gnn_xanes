@@ -20,46 +20,14 @@ def get_gpu_memory():
         return torch.cuda.max_memory_allocated() / 1024**3
     return 0
 
-
-def train_epoch(model, loader, optimizer, criterion, device, energy_grid, grad_clip=None):
-    model.train()
-    total_loss = 0
-    total_mse = 0
-    total_grad = 0
-    total_lap = 0
-    
-    if torch.cuda.is_available():
-        torch.cuda.reset_peak_memory_stats()
-        
-    for data in tqdm(loader, desc="Training", leave=False):
-        data = data.to(device)
-        optimizer.zero_grad()
-        
-        spectra_pred = model.predict_spectra(data, energy_grid)
-        loss, mse, grad_loss, lap_loss = criterion(spectra_pred, data.y, energy_grid)
-        
-        loss.backward()
-
-        if grad_clip is not None:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-
-        optimizer.step()
-        
-        total_loss += loss.item() * data.num_graphs
-        total_mse += mse.item() * data.num_graphs
-        total_grad += grad_loss.item() * data.num_graphs
-        total_lap += lap_loss.item() * data.num_graphs
-        
-    n = len(loader.dataset)
-    return total_loss / n, total_mse / n, total_grad / n, total_lap / n
-
-
 def validate(model, loader, criterion, device, energy_grid):
     model.eval()
     total_loss = 0
     total_mse = 0
     total_grad = 0
     total_lap = 0
+
+    # No need to compute gradients for validation
     with torch.no_grad():
         for data in loader:
             data = data.to(device)
@@ -69,6 +37,45 @@ def validate(model, loader, criterion, device, energy_grid):
             total_mse += mse.item() * data.num_graphs
             total_grad += grad_loss.item() * data.num_graphs
             total_lap += lap_loss.item() * data.num_graphs
+    n = len(loader.dataset)
+    return total_loss / n, total_mse / n, total_grad / n, total_lap / n
+
+
+def train_epoch(model, loader, optimizer, criterion, device, energy_grid, grad_clip=None):
+    model.train()
+    total_loss = 0
+    total_mse = 0
+    total_grad = 0
+    total_lap = 0
+    
+    # Reset GPU memory stats to measure peak memory usage during current epoch only
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+        
+    for batch_data in tqdm(loader, desc="Training", leave=False):
+        batch_data = batch_data.to(device)
+        optimizer.zero_grad() # erases gradients from previous step (pytorch accumulates gradients by default)
+        
+        spectra_pred = model.predict_spectra(batch_data, energy_grid)
+        loss, mse, grad_loss, lap_loss = criterion(spectra_pred, batch_data.y, energy_grid)
+        
+        # Backpropagate loss through computational graph to fill .grad attribute of model parameter tensors
+        loss.backward() 
+
+        # Gradient clipping to prevent exploding gradients
+        if grad_clip is not None:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+
+        # Update model parameters with the gradients stored in .grad attribute computed by backpropagation
+        optimizer.step() 
+        
+        # The loss returned is the average over the batch (MSE with reduction='mean'), 
+        # so we multiply by the number of graphs in the batch to get the total batch loss
+        total_loss += loss.item() * batch_data.num_graphs
+        total_mse += mse.item() * batch_data.num_graphs
+        total_grad += grad_loss.item() * batch_data.num_graphs
+        total_lap += lap_loss.item() * batch_data.num_graphs
+        
     n = len(loader.dataset)
     return total_loss / n, total_mse / n, total_grad / n, total_lap / n
 
@@ -85,10 +92,15 @@ def run_training(model, train_loader, val_loader, config, model_config=None):
         model_config: Dictionary containing model hyperparameters for self-contained checkpoints.
     """
     device = config.get('device', next(model.parameters()).device)
+
+    # AdamW optimizer with optional weight decay (equivalent to L2 regularization)
     optimizer = optim.AdamW(model.parameters(), lr=config['lr'], weight_decay=config.get('weight_decay', 0.01))
+
+    # Reduce LR by half if validation loss doesn't decrease for patience//2 epochs
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=0.5, patience=config['patience'] // 2
     )
+
     criterion = config['criterion']
     energy_grid = config['energy_grid']
     
@@ -104,8 +116,7 @@ def run_training(model, train_loader, val_loader, config, model_config=None):
         print(f"Loading checkpoint from {load_path}")
         checkpoint = torch.load(load_path, map_location=device)
         
-        # We assume the new checkpoint format (dict with 'model_state_dict')
-        # based on user feedback to not support backwards compatibility.
+        # Checkpoint is a dict with 'model_state_dict'
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
@@ -122,21 +133,22 @@ def run_training(model, train_loader, val_loader, config, model_config=None):
             f.write(f"Max Epochs: {config['epochs']}\n")
             f.write(f"Patience: {config['patience']}\n")
             f.write("-" * 40 + "\n")
-            f.write(f"{'Epoch':<8} {'Train Loss':<12} {'Val Loss':<12} {'Train MSE':<12} {'Val MSE':<12} {'LR':<10} {'GPU (GB)':<10} {'Time (m)':<10}\n")
-            f.write("-" * 110 + "\n")
+            f.write(f"{'Epoch':<8} {'Train Loss':<12} {'Val Loss':<12} {'T MSE':<12} {'V MSE':<12} {'T Grad MSE':<10} {'V Grad MSE':<10} {'T Lap MSE':<10} {'V Lap MSE':<10} {'LR':<10} {'GPU (GB)':<10} {'Time (m)':<10}\n")
+            f.write("-" * 140 + "\n")
     elif log_path and start_epoch > 0:
         with open(log_path, 'a') as f:
             f.write(f"--- Resumed training from epoch {start_epoch + 1} ---\n")
 
+    # Training loop, each iteration is one epoch
     for epoch in range(start_epoch, config['epochs']):
         epoch_start = time.time()
         train_loss, train_mse, train_grad, train_lap = train_epoch(
             model, train_loader, optimizer, criterion, device, energy_grid, config.get('grad_clip')
-        )
+        ) 
         val_loss, val_mse, val_grad, val_lap = validate(model, val_loader, criterion, device, energy_grid)
-        
         epoch_time_min = (time.time() - epoch_start) / 60
-        scheduler.step(val_loss)
+
+        scheduler.step(val_loss) # Reduce LR if `val_loss` doesn't decrease
         current_lr = optimizer.param_groups[0]['lr']
         
         print(
@@ -153,6 +165,10 @@ def run_training(model, train_loader, val_loader, config, model_config=None):
                 "val_loss": val_loss,
                 "train_mse": train_mse,
                 "val_mse": val_mse,
+                "train_grad": train_grad,
+                "val_grad": val_grad,
+                "train_lap": train_lap,
+                "val_lap": val_lap,
                 "lr": current_lr,
                 "gpu_mem_gb": get_gpu_memory(),
                 "epoch_time_min": epoch_time_min
@@ -164,7 +180,8 @@ def run_training(model, train_loader, val_loader, config, model_config=None):
             with open(log_path, 'a') as f:
                 f.write(
                     f"{epoch+1:<8} {train_loss:<12.4f} {val_loss:<12.4f} "
-                    f"{train_mse:<12.4f} {val_mse:<12.4f} {current_lr:<10.2e} {gpu_mem:<10.2f} {epoch_time_min:<10.2f}\n"
+                    f"{train_mse:<12.4f} {val_mse:<12.4f} {train_grad:<10.4f} {val_grad:<10.4f} "
+                    f"{train_lap:<10.4f} {val_lap:<10.4f} {current_lr:<10.2e} {gpu_mem:<10.2f} {epoch_time_min:<10.2f}\n"
                 )
             
         # Checkpointing
