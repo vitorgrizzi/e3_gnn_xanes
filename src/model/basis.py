@@ -55,7 +55,9 @@ class MultiScaleGaussianBasis(nn.Module):
             centers_list.append(c)
             sigmas_list.append(torch.full_like(c, sigma))
             
-        self.centers = nn.Parameter(torch.cat(centers_list))
+        # Freeze centers so they don't abandon the tail regions (prevents downward slope at boundaries)
+        self.register_buffer('centers', torch.cat(centers_list))
+        # Keep sigmas learnable so the network can still adjust peak sharpness
         self.sigmas = nn.Parameter(torch.cat(sigmas_list))
         
     def forward(self, energy_grid):
@@ -71,5 +73,7 @@ class MultiScaleGaussianBasis(nn.Module):
         """
         # [N_E, 1] - [1, n_basis] -> [N_E, n_basis]
         diff = energy_grid.unsqueeze(1) - self.centers.unsqueeze(0)
-        B = torch.exp(-(diff**2) / (2 * self.sigmas.unsqueeze(0)**2))
+        # Clamp sigmas to prevent division by zero in case the optimizer pushes them too small
+        safe_sigmas = self.sigmas.unsqueeze(0).clamp(min=1e-4)
+        B = torch.exp(-(diff**2) / (2 * safe_sigmas**2))
         return B
