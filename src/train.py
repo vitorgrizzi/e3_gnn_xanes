@@ -111,6 +111,10 @@ def run_training(model, train_loader, val_loader, config, model_config=None):
     log_path = config.get('log_path')
     load_path = config.get('load_path')
 
+    # Constants for logging
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    model_mem_gb = torch.cuda.memory_allocated(device) / 1024**3 if torch.cuda.is_available() and str(device).startswith('cuda') else 0
+
     # Load checkpoint if provided
     if load_path and os.path.exists(load_path):
         print(f"Loading checkpoint from {load_path}")
@@ -132,6 +136,8 @@ def run_training(model, train_loader, val_loader, config, model_config=None):
             f.write(f"Learning Rate: {config['lr']}\n")
             f.write(f"Max Epochs: {config['epochs']}\n")
             f.write(f"Patience: {config['patience']}\n")
+            f.write(f"Number of Parameters: {num_params/1e3:,.0f}k\n")
+            f.write(f"Model GPU Memory: {model_mem_gb:.4f} GB\n")
             f.write("-" * 40 + "\n")
             f.write(f"{'Epoch':<8} {'Train Loss':<12} {'Val Loss':<12} {'T MSE':<12} {'V MSE':<12} {'T Grad MSE':<12} {'V Grad MSE':<12} {'T Lap MSE':<12} {'V Lap MSE':<12} {'LR':<10} {'GPU (GB)':<10} {'Time (m)':<10}\n")
             f.write("-" * 148 + "\n")
