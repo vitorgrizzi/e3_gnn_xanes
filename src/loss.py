@@ -36,4 +36,4 @@ class SpectrumLoss(nn.Module):
             loss_2 = self.mse(lap_pred, lap_true)
         
         total_loss = loss_0 + (self.lambda_grad * loss_1) + (self.lambda_lap * loss_2) 
-        return total_loss, loss_0, loss_1, loss_2
+        return total_loss, loss_0, self.lambda_grad*loss_1, self.lambda_lap*loss_2

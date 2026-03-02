@@ -133,8 +133,8 @@ def run_training(model, train_loader, val_loader, config, model_config=None):
             f.write(f"Max Epochs: {config['epochs']}\n")
             f.write(f"Patience: {config['patience']}\n")
             f.write("-" * 40 + "\n")
-            f.write(f"{'Epoch':<8} {'Train Loss':<12} {'Val Loss':<12} {'T MSE':<12} {'V MSE':<12} {'T Grad MSE':<10} {'V Grad MSE':<10} {'T Lap MSE':<10} {'V Lap MSE':<10} {'LR':<10} {'GPU (GB)':<10} {'Time (m)':<10}\n")
-            f.write("-" * 140 + "\n")
+            f.write(f"{'Epoch':<8} {'Train Loss':<12} {'Val Loss':<12} {'T MSE':<12} {'V MSE':<12} {'T Grad MSE':<12} {'V Grad MSE':<12} {'T Lap MSE':<12} {'V Lap MSE':<12} {'LR':<10} {'GPU (GB)':<10} {'Time (m)':<10}\n")
+            f.write("-" * 148 + "\n")
     elif log_path and start_epoch > 0:
         with open(log_path, 'a') as f:
             f.write(f"--- Resumed training from epoch {start_epoch + 1} ---\n")
@@ -180,8 +180,8 @@ def run_training(model, train_loader, val_loader, config, model_config=None):
             with open(log_path, 'a') as f:
                 f.write(
                     f"{epoch+1:<8} {train_loss:<12.4f} {val_loss:<12.4f} "
-                    f"{train_mse:<12.4f} {val_mse:<12.4f} {train_grad:<10.4f} {val_grad:<10.4f} "
-                    f"{train_lap:<10.4f} {val_lap:<10.4f} {current_lr:<10.2e} {gpu_mem:<10.2f} {epoch_time_min:<10.2f}\n"
+                    f"{train_mse:<12.4f} {val_mse:<12.4f} {train_grad:<12.4f} {val_grad:<12.4f} "
+                    f"{train_lap:<12.4f} {val_lap:<12.4f} {current_lr:<10.2e} {gpu_mem:<10.2f} {epoch_time_min:<10.2f}\n"
                 )
             
         # Checkpointing
