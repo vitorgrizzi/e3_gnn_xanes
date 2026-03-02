@@ -168,9 +168,9 @@ class XANES_E3GNN(nn.Module):
         return coeffs
     
     def predict_spectra(self, data, energy_grid):
-        energy_grid = energy_grid.to(coeffs.device)  # device guard
-
-        coeffs = self.forward(data)            # [n_graphs_in_batch, n_basis]
+        coeffs = self.forward(data) # [n_graphs_in_batch, n_basis]
+        energy_grid = energy_grid.to(coeffs.device) # device guard
         basis_matrix = self.basis(energy_grid) # [N_E, n_basis]
-        spectra = torch.matmul(basis_matrix, coeffs.T).T # [n_graphs_in_batch, N_E]
+        
+        spectra = torch.matmul(coeffs, basis_matrix.T) # [n_graphs_in_batch, N_E]
         return spectra
