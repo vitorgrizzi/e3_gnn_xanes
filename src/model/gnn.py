@@ -115,6 +115,7 @@ class XANES_E3GNN(nn.Module):
         edge_sh = o3.spherical_harmonics(
             self.irreps_sh, vec, normalize=True, normalization='component'
         )
+        # Think of spherical harmonics as fixed "directional filters" for the edges
         
         # Interaction Blocks
         for layer in self.layers:
@@ -146,7 +147,7 @@ class XANES_E3GNN(nn.Module):
         v_site = l1_all[mask]      
         t_site = l2_all[mask]      
         
-        # Invariant norms per site (more stable than simple sum of squares)
+        # Invariant norms per site (more stable and rotation invariant)
         nv_site = torch.norm(v_site, dim=-1) # [N_absorbers, mul_1]
         nt_site = torch.norm(t_site, dim=-1) # [N_absorbers, mul_2]
 
