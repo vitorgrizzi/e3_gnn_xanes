@@ -26,7 +26,7 @@ E3GNN_xanes/
 │   │   ├── layers.py            # Equivariant interaction blocks (Bessel/Gaussian)
 │   │   ├── pooling.py           # Absorber-query attention
 │   │   └── gnn.py               # Main PBC-aware architecture
-│   ├── loss.py                  # Combined MSE + Gradient shape loss
+│   ├── loss.py                  # Combined MSE + Gradient loss + Laplacian loss
 │   ├── train.py                 # Training entry point (Hydra/WandB)
 │   ├── inference.py             # Model loading and spectral prediction API
 │   ├── visualization.py         # Plotting tools for model evaluation
@@ -85,13 +85,13 @@ Configuration settings (layers, hidden dims, learning rate, etc.) can be modifie
 **Equivariant Message Passing**:
 The interaction between atoms is modeled using an E(3)-equivariant Tensor Product (TP). The message $m_{ij}$ from neighbor $j$ to site $i$ is computed as:
 ```math
-m_{ij} = \mathcal{TP}\left(h_j, Y(\hat{\mathbf{r}}_{ij})\right) \cdot \text{MLP}\left(\phi(||\mathbf{r}_{ij}||)\right)
+m_{ij} = \bigoplus_{l_{out}} \sum_{l_1, l_2} w_{l_1, l_2, l_{out}}(|\mathbf{r}_{ij}|) \left[ h_j^{(l_1)} \otimes Y^{(l_2)}(\hat{\mathbf{r}}_{ij}) \right]^{(l_{out})}
 ```
 Where:
-- $h_j$ are the irrep-based node features.
-- $Y(\hat{\mathbf{r}}_{ij})$ are the spherical harmonics of the unit edge vector.
-- $\phi(||\mathbf{r}_{ij}||)$ is the radial basis (Spherical Bessel or Gaussian).
-- $\text{MLP}$ generates the weights for the Tensor Product.
+- $\otimes$ denotes the tensor product decomposed via Clebsch-Gordan coefficients.
+- $h_j^{(l_1)}$ are the irrep-based node features of center $j$.
+- $Y^{(l_2)}(\hat{\mathbf{r}}_{ij})$ are the spherical harmonics of the unit edge vector.
+- $w(|\mathbf{r}_{ij}|)$ are weights predicted by an MLP from the radial basis.
 
 The update rule for node $i$ includes gated activations and a residual connection:
 ```math
