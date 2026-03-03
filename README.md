@@ -117,6 +117,6 @@ Where:
 **Periodic Interaction**:
 The model computes true displacement vectors $\mathbf{r}_{ij}$ that wrap across cell boundaries:
 ```math
-\mathbf{r}_{ij} = \mathbf{pos}_j - \mathbf{pos}_i + \mathbf{S}_{ij} \cdot \mathbf{h}
+\mathbf{r}_{ij} = \mathbf{pos}_j - \mathbf{pos}_i + \mathbf{S}_{ij} \cdot \mathbf{A}
 ```
-Where $\mathbf{S}_{ij}$ is the integer periodic shift and $\mathbf{h}$ is the lattice matrix.
+Where $\mathbf{S}_{ij}$ is the integer periodic shift and $\mathbf{A}$ is the lattice matrix.
