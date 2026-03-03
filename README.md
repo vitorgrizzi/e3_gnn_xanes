@@ -19,15 +19,19 @@ E3GNN_xanes/
 │   ├── data/
 │   │   ├── assemble_dataset.py  # Parses FDMNES outputs into ASE SQLite DB
 │   │   ├── dataset.py           # PyG dataset implementation (ASE DB backed)
-│   │   ├── transforms.py        # Graph connectivity transforms
+│   │   ├── preprocess.py        # Data augmentation and energy grid processing
 │   │   └── utils.py             # Spectral normalization & parsing utilities
 │   ├── model/
-│   │   ├── basis.py             # Multi-scale Gaussian basis
-│   │   ├── layers.py            # Equivariant interaction blocks
+│   │   ├── basis.py             # Multi-scale Gaussian basis + Sigmoid background
+│   │   ├── layers.py            # Equivariant interaction blocks (Bessel/Gaussian)
 │   │   ├── pooling.py           # Absorber-query attention
 │   │   └── gnn.py               # Main PBC-aware architecture
 │   ├── loss.py                  # Combined MSE + Gradient shape loss
-│   └── train.py                 # Training entry point (Hydra/WandB)
+│   ├── train.py                 # Training entry point (Hydra/WandB)
+│   ├── inference.py             # Model loading and spectral prediction API
+│   ├── visualization.py         # Plotting tools for model evaluation
+│   ├── eval_validation.py       # Detailed post-training performance metrics
+│   └── config.py                # Configuration schema and defaults
 ├── configs/
 │   └── config.yaml              # Hydra configuration for model & training
 ├── tests/
