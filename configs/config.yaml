@@ -9,23 +9,23 @@ model:
   mul_1: 16     # number of basis functions for l=1
   mul_2: 8      # number of basis functions for l=2
   r_max: 5.0    # maximum radius
-  num_radial: 12 # number of Gaussian radial basis functions used to encode interatomic distances during message passing
+  num_radial: 12 # number of radial basis functions (spherical bessel) used to encode interatomic distances 
   basis_scales: [0.5, 0.75, 1.25, 2.0] # intial variances of readout Gaussian basis functions
-  num_basis: 80 # number of readout Gaussian basis functions 
+  num_basis: 120 # number of readout Gaussian basis functions 
   emin: -30.0 # minimum energy
   emax: 100.0 # maximum energy
   num_energy_points: 150 # number of energy points
-  dropout: 0.05 # dropout rate
+  dropout: 0.1 # dropout rate
   # emin, emax, num_energy_points must match the values used in the dataset creation
 
 training:
   lr: 1e-3 # learning rate
-  batch_size: 4 # batch size
-  epochs: 100 # number of epochs
+  batch_size: 8 # batch size
+  epochs: 150 # number of epochs
   weight_decay: 0.05 # weight decay
-  lambda_grad: 0.3 # regularization factor for the gradient matching loss
-  lambda_lap: 0.01 # regularization factor for the laplacian (2nd deriv) loss
-  patience: 15 # number of epochs to wait for improvement before stopping
+  lambda_grad: 150 # regularization factor for the gradient matching loss
+  lambda_lap: 200 # regularization factor for the laplacian (2nd deriv) loss
+  patience: 20 # number of epochs to wait for improvement before stopping
   grad_clip: 5.0 # gradient clipping value
   save_path: "best_model.pt" # path to save the best model
   load_path: null # path to load the model from

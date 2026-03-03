@@ -124,13 +124,15 @@ class CustomInteractionBlock(nn.Module):
         bessel = torch.sinc(k_d / torch.pi)
         
         # 2. Cosine cutoff polynomial: 0.5 * (cos(pi * d / r_max) + 1.0)
-        # Evaluates to 1.0 at d=0 and smoothly goes to 0.0 at d=r_max
+        # Monotonically and smoothly decreasing function from [0, r_max]. 
+        # We use pi*d/r_max instead of pi/2*d/r_max to ensure that not 
+        # only the function but also its derivative are zero at d=r_max.
         cutoff = 0.5 * (torch.cos(torch.pi * d / self.r_max) + 1.0)
         
         # Enforce exact zero outside r_max just in case
         cutoff = cutoff * (d < self.r_max).float()
         
-        return bessel*cutoff
+        return bessel * cutoff
 
     def forward(self, x, edge_attr=None, edge_length=None, edge_src=None, edge_dst=None):
         # 1. Radial embedding -> TP weights
