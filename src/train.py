@@ -136,7 +136,7 @@ def run_training(model, train_loader, val_loader, config, model_config=None):
             f.write(f"Learning Rate: {config['lr']}\n")
             f.write(f"Max Epochs: {config['epochs']}\n")
             f.write(f"Patience: {config['patience']}\n")
-            f.write(f"Number of Parameters: {num_params/1e3:,.0f}k\n")
+            f.write(f"Number of Parameters: {num_params/1e6:.2f}M\n")
             f.write(f"Model GPU Memory: {model_mem_gb:.4f} GB\n")
             f.write("-" * 40 + "\n")
             f.write(f"{'Epoch':<8} {'Train Loss':<12} {'Val Loss':<12} {'T MSE':<12} {'V MSE':<12} {'T Grad MSE':<12} {'V Grad MSE':<12} {'T Lap MSE':<12} {'V Lap MSE':<12} {'LR':<10} {'GPU (GB)':<10} {'Time (m)':<10}\n")

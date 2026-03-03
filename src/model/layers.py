@@ -3,7 +3,8 @@ import torch.nn as nn
 from e3nn import o3
 from e3nn.nn import FullyConnectedNet, Gate
 
-# Module-level torch_scatter import
+# torch_scatter is used for highly optimized message 
+# aggregation (sum, mean, max, etc.) in message passing
 try:
     from torch_scatter import scatter
     HAS_TORCH_SCATTER = True
@@ -39,7 +40,7 @@ class CustomInteractionBlock(nn.Module):
                  irreps_out,
                  irreps_sh,
                  number_of_radial_basis_functions,
-                 steps=None,
+                 r_max=5.0,
                  dropout=0.1):
         super().__init__()
         
@@ -88,18 +89,12 @@ class CustomInteractionBlock(nn.Module):
         
         # --- Radial basis + MLP for TP weights ---
         self.num_radial = number_of_radial_basis_functions
-        if steps is not None:
-            self.register_buffer('radial_centers', steps)
-            if len(steps) > 1:
-                self.radial_sigma = (steps[-1] - steps[0]) / (len(steps) - 1)
-            else:
-                self.radial_sigma = 1.0
-        else:
-            self.radial_sigma = 1.0
-            self.register_buffer(
-                'radial_centers',
-                torch.linspace(0.0, 5.0, self.num_radial),
-            )
+        self.r_max = r_max
+        
+        # Frequencies for spherical bessel functions: n*pi / r_max
+        # where n = 1, 2, ..., num_radial
+        n_pi = torch.arange(1, self.num_radial + 1, dtype=torch.float32) * torch.pi
+        self.register_buffer('bessel_freqs', n_pi / self.r_max)
 
         self.fc = FullyConnectedNet(
             [self.num_radial, 64, self.tp.weight_numel],
@@ -115,9 +110,27 @@ class CustomInteractionBlock(nn.Module):
             
 
     def radial_basis(self, length):
-        """Gaussian radial basis: exp(-(d - mu)^2 / 2sigma^2)."""
-        d = length.unsqueeze(-1) - self.radial_centers.unsqueeze(0)
-        return torch.exp(-(d ** 2) / (2 * self.radial_sigma ** 2))
+        """
+        Spherical Bessel radial basis with cosine smooth cutoff.
+        """
+        # Add small epsilon to avoid division by zero at origin
+        d = length.unsqueeze(-1) + 1e-8
+        
+        # 1. Spherical Bessel j_0(k*d) = sin(k*d) / (k*d)
+        # We can use torch.sinc(x) = sin(pi*x)/(pi*x), so we pass (k*d)/pi
+        k_d = d * self.bessel_freqs.unsqueeze(0)
+
+        # Since torch.sinc expects x to produce sin(pi*x)/(pi*x), we pass x = k_d / pi
+        bessel = torch.sinc(k_d / torch.pi)
+        
+        # 2. Cosine cutoff polynomial: 0.5 * (cos(pi * d / r_max) + 1.0)
+        # Evaluates to 1.0 at d=0 and smoothly goes to 0.0 at d=r_max
+        cutoff = 0.5 * (torch.cos(torch.pi * d / self.r_max) + 1.0)
+        
+        # Enforce exact zero outside r_max just in case
+        cutoff = cutoff * (d < self.r_max).float()
+        
+        return bessel*cutoff
 
     def forward(self, x, edge_attr=None, edge_length=None, edge_src=None, edge_dst=None):
         # 1. Radial embedding -> TP weights

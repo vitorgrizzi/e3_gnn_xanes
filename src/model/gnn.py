@@ -47,7 +47,7 @@ class XANES_E3GNN(nn.Module):
                 irreps_out=self.irreps_hidden,
                 irreps_sh=self.irreps_sh,
                 number_of_radial_basis_functions=num_radial,
-                steps=torch.linspace(0.0, r_max, num_radial),
+                r_max=r_max,
                 dropout=dropout,
             )
         )
@@ -60,7 +60,7 @@ class XANES_E3GNN(nn.Module):
                     irreps_out=self.irreps_hidden,
                     irreps_sh=self.irreps_sh,
                     number_of_radial_basis_functions=num_radial,
-                    steps=torch.linspace(0.0, r_max, num_radial),
+                    r_max=r_max,
                     dropout=dropout,
                 )
              )
