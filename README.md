@@ -78,15 +78,41 @@ Configuration settings (layers, hidden dims, learning rate, etc.) can be modifie
 
 ## Mathematical Framework
 
+**Equivariant Message Passing**:
+The interaction between atoms is modeled using an E(3)-equivariant Tensor Product (TP). The message $m_{ij}$ from neighbor $j$ to site $i$ is computed as:
+```math
+m_{ij} = \mathcal{TP}\left(h_j, Y(\hat{\mathbf{r}}_{ij})\right) \cdot \text{MLP}\left(\phi(||\mathbf{r}_{ij}||)\right)
+```
+Where:
+- $h_j$ are the irrep-based node features.
+- $Y(\hat{\mathbf{r}}_{ij})$ are the spherical harmonics of the unit edge vector.
+- $\phi(||\mathbf{r}_{ij}||)$ is the radial basis (Spherical Bessel or Gaussian).
+- $\text{MLP}$ generates the weights for the Tensor Product.
+
+The update rule for node $i$ includes gated activations and a residual connection:
+```math
+h_i^{(l+1)} = \text{Gate}\left( \frac{1}{|\mathcal{N}(i)|} \sum_{j \in \mathcal{N}(i)} m_{ij} \right) + \mathbf{W}_{res} h_i^{(l)}
+```
+
+**Spectral Reconstruction**:
+```math
+\hat{\mu}(E) = \sum_{k} c_k \cdot B_k(E)
+```
+Where $B_k$ are the basis functions (Multi-scale Gaussians + Global Sigmoid Background) and $c_k$ are the coefficients predicted by the graph readout.
+
+**Loss Function**:
+To ensure high-fidelity spectral shapes, we minimize a composite loss:
+```math
+\mathcal{L} = \mathcal{L}_{MSE} + \lambda_{grad} \mathcal{L}_{grad} + \lambda_{lap} \mathcal{L}_{lap}
+```
+Where:
+- $\mathcal{L}_{MSE}$: Standard Mean Squared Error on intensity.
+- $\mathcal{L}_{grad}$: MSE between the first derivatives (Spectral Gradient) of predicted and true spectra.
+- $\mathcal{L}_{lap}$: MSE between the second derivatives (Spectral Laplacian) to ensure peak sharpness.
+
 **Periodic Interaction**:
 The model computes true displacement vectors $\mathbf{r}_{ij}$ that wrap across cell boundaries:
 ```math
 \mathbf{r}_{ij} = \mathbf{pos}_j - \mathbf{pos}_i + \mathbf{S}_{ij} \cdot \mathbf{h}
 ```
 Where $\mathbf{S}_{ij}$ is the integer periodic shift and $\mathbf{h}$ is the lattice matrix.
-
-**Spectral Reconstruction**:
-```math
-\hat{\mu}(E) = \sum_{k} c_k \cdot G_k(E)
-```
-Where $G_k$ are the multi-scale Gaussian basis functions and $c_k$ are the scalars predicted by the equivariant backbone.
