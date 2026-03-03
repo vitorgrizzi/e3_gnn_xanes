@@ -41,7 +41,8 @@ class CustomInteractionBlock(nn.Module):
                  irreps_sh,
                  number_of_radial_basis_functions,
                  r_max=5.0,
-                 dropout=0.1):
+                 dropout=0.1,
+                 radial_basis_type='bessel'):
         super().__init__()
         
         self.irreps_in = o3.Irreps(irreps_in)
@@ -90,11 +91,23 @@ class CustomInteractionBlock(nn.Module):
         # --- Radial basis + MLP for TP weights ---
         self.num_radial = number_of_radial_basis_functions
         self.r_max = r_max
+        self.radial_basis_type = radial_basis_type
         
-        # Frequencies for spherical bessel functions: n*pi / r_max
-        # where n = 1, 2, ..., num_radial
-        n_pi = torch.arange(1, self.num_radial + 1, dtype=torch.float32) * torch.pi
-        self.register_buffer('bessel_freqs', n_pi / self.r_max)
+        if self.radial_basis_type == 'bessel':
+            # Frequencies for spherical bessel functions: n*pi / r_max
+            # where n = 1, 2, ..., num_radial
+            n_pi = torch.arange(1, self.num_radial + 1, dtype=torch.float32) * torch.pi
+            self.register_buffer('bessel_freqs', n_pi / self.r_max)
+        elif self.radial_basis_type == 'gaussian':
+            # Means for Gaussian basis functions, spaced evenly from 0 to r_max
+            means = torch.linspace(0, self.r_max, self.num_radial)
+            self.register_buffer('gaussian_means', means)
+
+            # Match std to exact spacing between means for optimal overlap
+            spacing = self.r_max / max(1, self.num_radial - 1)
+            self.register_buffer('gaussian_std', torch.tensor(spacing))
+        else:
+            raise ValueError(f"Unknown radial basis type: {self.radial_basis_type}")
 
         self.fc = FullyConnectedNet(
             [self.num_radial, 64, self.tp.weight_numel],
@@ -111,19 +124,23 @@ class CustomInteractionBlock(nn.Module):
 
     def radial_basis(self, length):
         """
-        Spherical Bessel radial basis with cosine smooth cutoff.
+        Spherical Bessel or Gaussian radial basis with cosine smooth cutoff.
         """
         # Add small epsilon to avoid division by zero at origin
         d = length.unsqueeze(-1) + 1e-8
         
-        # 1. Spherical Bessel j_0(k*d) = sin(k*d) / (k*d)
-        # We can use torch.sinc(x) = sin(pi*x)/(pi*x), so we pass (k*d)/pi
-        k_d = d * self.bessel_freqs.unsqueeze(0)
-
-        # Since torch.sinc expects x to produce sin(pi*x)/(pi*x), we pass x = k_d / pi
-        bessel = torch.sinc(k_d / torch.pi)
+        if self.radial_basis_type == 'bessel':
+            # Spherical Bessel j_0(k*d) = sin(k*d) / (k*d)
+            # We can use torch.sinc(x) = sin(pi*x)/(pi*x), so we pass (k*d)/pi
+            k_d = d * self.bessel_freqs.unsqueeze(0)
+            r_basis = torch.sinc(k_d / torch.pi)
+        elif self.radial_basis_type == 'gaussian':
+            # Gaussian exp(-0.5 * ((d - mu) / std)**2)
+            r_basis = torch.exp(-0.5 * ((d - self.gaussian_means) / self.gaussian_std) ** 2)
+        else:
+            raise ValueError(f"Unknown radial basis type: {self.radial_basis_type}")
         
-        # 2. Cosine cutoff polynomial: 0.5 * (cos(pi * d / r_max) + 1.0)
+        # Cosine cutoff polynomial: 0.5 * (cos(pi * d / r_max) + 1.0)
         # Monotonically and smoothly decreasing function from [0, r_max]. 
         # We use pi*d/r_max instead of pi/2*d/r_max to ensure that not 
         # only the function but also its derivative are zero at d=r_max.
@@ -132,7 +149,7 @@ class CustomInteractionBlock(nn.Module):
         # Enforce exact zero outside r_max just in case
         cutoff = cutoff * (d < self.r_max).float()
         
-        return bessel * cutoff
+        return r_basis * cutoff
 
     def forward(self, x, edge_attr=None, edge_length=None, edge_src=None, edge_dst=None):
         # 1. Radial embedding -> TP weights

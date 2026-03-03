@@ -9,6 +9,7 @@ model:
   mul_1: 16     # number of basis functions for l=1
   mul_2: 8      # number of basis functions for l=2
   r_max: 5.0    # maximum radius
+  radial_basis_type: "bessel" # type of radial basis functions to use, can be "bessel" or "gaussian"
   num_radial: 12 # number of radial basis functions (spherical bessel) used to encode interatomic distances 
   basis_scales: [0.5, 0.75, 1.25, 2.0] # intial variances of readout Gaussian basis functions
   num_basis: 120 # number of readout Gaussian basis functions 
@@ -16,6 +17,7 @@ model:
   emax: 100.0 # maximum energy
   num_energy_points: 150 # number of energy points
   dropout: 0.1 # dropout rate
+  global_bg: true # whether to use a global background for the edge step
   # emin, emax, num_energy_points must match the values used in the dataset creation
 
 training:

@@ -273,10 +273,12 @@ def main(cfg: DictConfig):
         r_max=cfg.model.r_max,
         num_basis=cfg.model.num_basis,
         num_radial=cfg.model.num_radial,
+        radial_basis_type=cfg.model.get('radial_basis_type', 'bessel'),
         basis_scales=cfg.model.basis_scales,
         emin=cfg.model.emin,
         emax=cfg.model.emax,
-        dropout=cfg.model.get('dropout', 0.1)
+        dropout=cfg.model.get('dropout', 0.1),
+        global_bg=cfg.model.get('global_bg', True)
     ).to(device)
     
     # 5. Optimization & Criterion

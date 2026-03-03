@@ -17,9 +17,11 @@ class XANES_E3GNN(nn.Module):
                  r_max=5.0,
                  num_basis=128,
                  num_radial=10,
+                 radial_basis_type='bessel',
                  basis_scales=[0.1, 0.5, 1.0],
                  emin=-10, emax=50,
-                 dropout=0.1):
+                 dropout=0.1,
+                 global_bg=True):
         super().__init__()
         
         # Store multiplicities for use in forward()
@@ -49,6 +51,7 @@ class XANES_E3GNN(nn.Module):
                 number_of_radial_basis_functions=num_radial,
                 r_max=r_max,
                 dropout=dropout,
+                radial_basis_type=radial_basis_type,
             )
         )
         
@@ -62,6 +65,7 @@ class XANES_E3GNN(nn.Module):
                     number_of_radial_basis_functions=num_radial,
                     r_max=r_max,
                     dropout=dropout,
+                    radial_basis_type=radial_basis_type,
                 )
              )
              
@@ -75,15 +79,18 @@ class XANES_E3GNN(nn.Module):
         # s_a (mul_0) + context (mul_0) + norm_v (mul_1) + norm_t (mul_2)
         readout_dim = mul_0 + mul_0 + mul_1 + mul_2
         
+        # If we have a global background, the basis has size num_basis + 1
+        n_out = num_basis + 1 if global_bg else num_basis
+        
         self.readout_mlp = nn.Sequential(
             nn.Linear(readout_dim, 128),
             nn.SiLU(),
-            nn.Linear(128, num_basis)
+            nn.Linear(128, n_out)
         )
         
         # Basis
         self.basis = MultiScaleGaussianBasis(
-            n_basis=num_basis, emin=emin, emax=emax, scales_ratios=basis_scales
+            n_basis=num_basis, emin=emin, emax=emax, scales_ratios=basis_scales, global_bg=global_bg
         )
         
     def forward(self, data):
