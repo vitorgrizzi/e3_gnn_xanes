@@ -145,9 +145,36 @@ def run_training(model, train_loader, val_loader, config, model_config=None):
         with open(log_path, 'a') as f:
             f.write(f"--- Resumed training from epoch {start_epoch + 1} ---\n")
 
+    # Get maximum configured penalty values
+    max_lambda_grad = config.get('lambda_grad', 0.0)
+    max_lambda_lap = config.get('lambda_lap', 0.0)
+    use_loss_annealing = config.get('use_loss_annealing', False)
+    warmup_epochs = config.get('warmup_epochs', 0)
+    fade_epochs = config.get('fade_epochs', 1)
+
     # Training loop, each iteration is one epoch
     for epoch in range(start_epoch, config['epochs']):
         epoch_start = time.time()
+        
+        # Loss Annealing Schedule
+        if use_loss_annealing:
+            if epoch < warmup_epochs:
+                # Force pure MSE during warmup
+                criterion.lambda_grad = 0.0
+                criterion.lambda_lap = 0.0
+            elif epoch < warmup_epochs + fade_epochs:
+                # Linearly ramp up penalties
+                fade_progress = (epoch - warmup_epochs) / fade_epochs
+                criterion.lambda_grad = max_lambda_grad * fade_progress
+                criterion.lambda_lap = max_lambda_lap * fade_progress
+            else:
+                # Target max penalties reached
+                criterion.lambda_grad = max_lambda_grad
+                criterion.lambda_lap = max_lambda_lap
+        else:
+             criterion.lambda_grad = max_lambda_grad
+             criterion.lambda_lap = max_lambda_lap
+             
         train_loss, train_mse, train_grad, train_lap = train_epoch(
             model, train_loader, optimizer, criterion, device, energy_grid, config.get('grad_clip')
         ) 
@@ -175,6 +202,8 @@ def run_training(model, train_loader, val_loader, config, model_config=None):
                 "val_grad": val_grad,
                 "train_lap": train_lap,
                 "val_lap": val_lap,
+                "lambda_grad": criterion.lambda_grad,
+                "lambda_lap": criterion.lambda_lap,
                 "lr": current_lr,
                 "gpu_mem_gb": get_gpu_memory(),
                 "epoch_time_min": epoch_time_min
@@ -307,7 +336,12 @@ def main(cfg: DictConfig):
         'patience': cfg.training.patience,
         'grad_clip': cfg.training.grad_clip,
         'weight_decay': cfg.training.get('weight_decay', 0.01),
-        'device': device
+        'device': device,
+        'lambda_grad': cfg.training.get('lambda_grad', 0.0),
+        'lambda_lap': cfg.training.get('lambda_lap', 0.0),
+        'use_loss_annealing': cfg.training.get('use_loss_annealing', False),
+        'warmup_epochs': cfg.training.get('warmup_epochs', 0),
+        'fade_epochs': cfg.training.get('fade_epochs', 1)
     }
     
     # 6. Run Training
