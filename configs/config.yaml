@@ -24,7 +24,7 @@ training:
   lr: 1e-3 # learning rate
   batch_size: 8 # batch size
   epochs: 150 # number of epochs
-  weight_decay: 0.05 # weight decay
+  weight_decay: 0.02 # weight decay
   lambda_grad: 150 # regularization factor for the gradient matching loss
   lambda_lap: 200 # regularization factor for the laplacian (2nd deriv) loss
   use_loss_annealing: true # gradually turn on laplacian/derivative losses

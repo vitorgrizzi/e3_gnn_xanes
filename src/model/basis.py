@@ -48,16 +48,18 @@ class MultiScaleGaussianBasis(nn.Module):
         full_range = emax - emin
         max_ratio = max(scales_ratios)
         
-        # Create a numerical CDF for the right-skewed peak density
+        # Setting parameters for the skewed distribution
         fine_grid = torch.linspace(emin, emax, 5000)
-        w_left = full_range * 0.05 + 1e-6
-        w_right = full_range * 0.25 + 1e-6
+        w_left = full_range * 0.05 + 1e-6 # left weight
+        w_right = full_range * 0.25 + 1e-6 # right weight, larger for more skew
         
+        # Create a right-skewed Gaussian PDF centered at peak_e
         skewed_pdf = torch.where(fine_grid < peak_e,
                                  torch.exp(-0.5 * ((fine_grid - peak_e) / w_left)**2),
                                  torch.exp(-0.5 * ((fine_grid - peak_e) / w_right)**2))
-        skewed_pdf = skewed_pdf / skewed_pdf.sum()
+        skewed_pdf = skewed_pdf / skewed_pdf.sum() # normalize
         
+        # Create a uniform PDF
         uniform_pdf = torch.ones_like(fine_grid) / len(fine_grid)
         
         for i, ratio in enumerate(scales_ratios):
@@ -70,7 +72,7 @@ class MultiScaleGaussianBasis(nn.Module):
             
             # Compute numerical CDF
             cdf = torch.cumsum(blended_pdf, dim=0)
-            cdf = cdf / cdf[-1]
+            cdf = cdf / cdf[-1] # normalize
             
             # Map uniform percentiles back into energy grid
             target_probs = torch.linspace(0, 1, count)
