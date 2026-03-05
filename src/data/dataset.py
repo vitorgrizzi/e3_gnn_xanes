@@ -3,7 +3,7 @@ Dataset classes for XANES spectra prediction.
 
 Reads structures from an ASE SQLite database (produced by assemble_dataset.py),
 builds PBC-aware graphs via ASE neighbor lists, and produces one PyG Data
-object per absorber site.
+object per database row (covering all absorber sites in that structure).
 """
 import os
 import torch
@@ -23,9 +23,9 @@ class XANESDataset(InMemoryDataset):
       - Absorber atoms tagged with ``tag == 1``.
       - XANES spectrum stored in ``row.data['xanes']`` as an (N, 2) array.
 
-    For structures with multiple absorber atoms, this dataset creates
-    one graph per absorber site (same structure, different absorber mask)
-    so the model predicts a per-site spectrum.
+    For structures with multiple absorber atoms, the target spectrum typically 
+    represents the average (linear combination) of all absorber sites. 
+    A single graph is created with a mask identifying all contributing sites.
 
     Each ``Data`` object carries:
         * ``z``               (N,) atomic numbers
@@ -33,7 +33,7 @@ class XANESDataset(InMemoryDataset):
         * ``cell``            (3, 3) lattice matrix (row-vector convention)
         * ``edge_index``      (2, E) directed edges
         * ``edge_shift``      (E, 3) Cartesian PBC shift for each edge
-        * ``absorber_mask``   (N,) bool, True for the single absorber site
+        * ``absorber_mask``   (N,) bool, True for all absorber sites in the structure
         * ``y``               (1, N_E) interpolated XANES spectrum
     """
     

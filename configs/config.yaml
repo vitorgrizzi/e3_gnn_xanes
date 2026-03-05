@@ -3,21 +3,21 @@ defaults:
 
 model:
   max_z: 92     # maximum atomic number the model can handle, sets the size of AtomicEmbedding lookup table
+  r_max: 5.0    # maximum radius
   num_layers: 4 # number of message passing layers
   lmax: 2       # maximum angular momentum
   mul_0: 32     # number of basis functions for l=0
   mul_1: 16     # number of basis functions for l=1
   mul_2: 8      # number of basis functions for l=2
-  r_max: 5.0    # maximum radius
   radial_basis_type: "bessel" # type of radial basis functions to use, can be "bessel" or "gaussian"
   num_radial: 12 # number of radial basis functions (spherical bessel) used to encode interatomic distances 
+  global_bg: true # whether to use a global background for the edge step
   basis_scales: [0.5, 0.75, 1.25, 2.0] # intial variances of readout Gaussian basis functions
   num_basis: 120 # number of readout Gaussian basis functions 
   emin: -30.0 # minimum energy
   emax: 100.0 # maximum energy
   num_energy_points: 150 # number of energy points
   dropout: 0.1 # dropout rate
-  global_bg: true # whether to use a global background for the edge step
   # emin, emax, num_energy_points must match the values used in the dataset creation
 
 training:
@@ -25,8 +25,8 @@ training:
   batch_size: 8 # batch size
   epochs: 150 # number of epochs
   weight_decay: 0.05 # weight decay
-  lambda_grad: 150 # regularization factor for the gradient matching loss
-  lambda_lap: 200 # regularization factor for the laplacian (2nd deriv) loss
+  lambda_grad: 200 # regularization factor for the gradient matching loss
+  lambda_lap: 100 # regularization factor for the laplacian (2nd deriv) loss
   patience: 20 # number of epochs to wait for improvement before stopping
   grad_clip: 5.0 # gradient clipping value
   save_path: "best_model.pt" # path to save the best model

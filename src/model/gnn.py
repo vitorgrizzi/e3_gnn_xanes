@@ -20,7 +20,7 @@ class XANES_E3GNN(nn.Module):
                  radial_basis_type='bessel',
                  basis_scales=[0.1, 0.5, 1.0],
                  emin=-10, emax=50,
-                 dropout=0.1,
+                 dropout=0.2,
                  global_bg=True):
         super().__init__()
         
@@ -85,6 +85,7 @@ class XANES_E3GNN(nn.Module):
         self.readout_mlp = nn.Sequential(
             nn.Linear(readout_dim, 128),
             nn.SiLU(),
+            nn.Dropout(dropout),
             nn.Linear(128, n_out)
         )
         

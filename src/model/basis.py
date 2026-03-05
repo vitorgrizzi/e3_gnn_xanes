@@ -11,7 +11,7 @@ class MultiScaleGaussianBasis(nn.Module):
     OBS1: We are fixing the Gaussian centers and learning their widths. This is done to 
           reduce the number of parameters and make the loss landscape smoother (easier to train).
     """
-    def __init__(self, n_basis=128, emin=-10.0, emax=50.0, scales_ratios=[0.1, 0.5, 1.0], global_bg=True):
+    def __init__(self, n_basis=128, emin=-10.0, emax=50.0, scales_ratios=[0.1, 0.5, 1.0], global_bg=True, peak_e=15.0):
         """
         Args:
             n_basis (int): Total number of basis functions.
@@ -19,12 +19,15 @@ class MultiScaleGaussianBasis(nn.Module):
             emax (float): Maximum energy value.
             scales_ratios (list): Relative initial widths/scales for each Gaussian group. There 
                                   will be `len(scales_ratios)` Gaussian groups.
+            peak_e (float): The energy value where XANES transitions are most dense, used
+                            to center the right-skewed Gaussian center distribution.
         """
         super().__init__()
         self.n_basis = n_basis
         self.emin = emin
         self.emax = emax
         self.global_bg = global_bg
+        self.peak_e = peak_e
         
         if self.global_bg:
             # We add a learnable logistic/sigmoid function to act as an edge step background
@@ -43,23 +46,53 @@ class MultiScaleGaussianBasis(nn.Module):
         
         # Base grid spacing
         full_range = emax - emin
+        max_ratio = max(scales_ratios)
+        
+        # Create a numerical CDF for the right-skewed peak density
+        fine_grid = torch.linspace(emin, emax, 5000)
+        w_left = full_range * 0.05 + 1e-6
+        w_right = full_range * 0.25 + 1e-6
+        
+        skewed_pdf = torch.where(fine_grid < peak_e,
+                                 torch.exp(-0.5 * ((fine_grid - peak_e) / w_left)**2),
+                                 torch.exp(-0.5 * ((fine_grid - peak_e) / w_right)**2))
+        skewed_pdf = skewed_pdf / skewed_pdf.sum()
+        
+        uniform_pdf = torch.ones_like(fine_grid) / len(fine_grid)
         
         for i, ratio in enumerate(scales_ratios):
             count = n_per_scale + (1 if i < remainder else 0)
             
-            # Distribute centers evenly across the energy range
-            centers = torch.linspace(emin, emax, count)
+            # Blend between skewed PDF and uniform PDF based on scale ratio. 
+            # Sharpest scale (lowest ratio) is highly skewed. Largest scale is nearly uniform.
+            uniform_weight = ratio / max_ratio
+            blended_pdf = (1.0 - uniform_weight) * skewed_pdf + uniform_weight * uniform_pdf
             
-            # Finding the spacing between Gaussians
-            spacing = full_range / count
-
-            # Computing initial `sigma` for Gaussian group
-            sigma = spacing * ratio * 2.0 # Factor of 2 for overlap
+            # Compute numerical CDF
+            cdf = torch.cumsum(blended_pdf, dim=0)
+            cdf = cdf / cdf[-1]
             
-            # If remainder == 0, all Gaussian groups are initialized at the same point in the 
-            # grid. During learning, the different widths will be adjusted to better fit the data
+            # Map uniform percentiles back into energy grid
+            target_probs = torch.linspace(0, 1, count)
+            indices = torch.searchsorted(cdf, target_probs)
+            indices = torch.clamp(indices, 0, len(fine_grid) - 1)
+            centers = fine_grid[indices]
+            
+            # Initial `sigma`: estimate local spacing between points so denser regions 
+            # get sharper initial Gaussians, while tails remain appropriately broader
+            if count > 1:
+                local_spacing = torch.zeros(count)
+                local_spacing[0] = centers[1] - centers[0]
+                local_spacing[-1] = centers[-1] - centers[-2]
+                if count > 2:
+                    local_spacing[1:-1] = (centers[2:] - centers[:-2]) / 2.0
+            else:
+                local_spacing = torch.tensor([full_range])
+                
+            sigma = local_spacing * ratio * 2.0 
+            
             centers_list.append(centers)
-            sigmas_list.append(torch.full_like(centers, sigma))
+            sigmas_list.append(sigma)
             
         # Freeze centers so they don't abandon the tail regions (prevents downward slope at boundaries) 
         self.register_buffer('centers', torch.cat(centers_list)) 
