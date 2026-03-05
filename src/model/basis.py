@@ -5,13 +5,12 @@ class MultiScaleGaussianBasis(nn.Module):
     """
     Multi-Scale Gaussian Basis for spectral reconstruction.
     
-    This module generates a basis of Gaussian functions with learnable widths (scales)
-    and fixed centers to capture both sharp features and broad oscillations.
+    This module generates a basis of Gaussian functions with fixed widths (scales)
+    and learnable centers to capture both sharp features and broad oscillations.
 
-    OBS1: We are fixing the Gaussian centers and learning their widths. This is done to 
-          reduce the number of parameters and make the loss landscape smoother (easier to train).
+    OBS1: We are fixing the Gaussian widths and learning their centers.
     """
-    def __init__(self, n_basis=128, emin=-10.0, emax=50.0, scales_ratios=[0.1, 0.5, 1.0], global_bg=True, peak_e=15.0):
+    def __init__(self, n_basis=128, emin=-10.0, emax=50.0, scales_ratios=[0.1, 0.5, 1.0], global_bg=True):
         """
         Args:
             n_basis (int): Total number of basis functions.
@@ -19,15 +18,12 @@ class MultiScaleGaussianBasis(nn.Module):
             emax (float): Maximum energy value.
             scales_ratios (list): Relative initial widths/scales for each Gaussian group. There 
                                   will be `len(scales_ratios)` Gaussian groups.
-            peak_e (float): The energy value where XANES transitions are most dense, used
-                            to center the right-skewed Gaussian center distribution.
         """
         super().__init__()
         self.n_basis = n_basis
         self.emin = emin
         self.emax = emax
         self.global_bg = global_bg
-        self.peak_e = peak_e
         
         if self.global_bg:
             # We add a learnable logistic/sigmoid function to act as an edge step background
@@ -46,61 +42,30 @@ class MultiScaleGaussianBasis(nn.Module):
         
         # Base grid spacing
         full_range = emax - emin
-        max_ratio = max(scales_ratios)
-        
-        # Setting parameters for the skewed distribution
-        fine_grid = torch.linspace(emin, emax, 5000)
-        w_left = full_range * 0.05 + 1e-6 # left weight
-        w_right = full_range * 0.25 + 1e-6 # right weight, larger for more skew
-        
-        # Create a right-skewed Gaussian PDF centered at peak_e
-        skewed_pdf = torch.where(fine_grid < peak_e,
-                                 torch.exp(-0.5 * ((fine_grid - peak_e) / w_left)**2),
-                                 torch.exp(-0.5 * ((fine_grid - peak_e) / w_right)**2))
-        skewed_pdf = skewed_pdf / skewed_pdf.sum() # normalize
-        
-        # Create a uniform PDF
-        uniform_pdf = torch.ones_like(fine_grid) / len(fine_grid)
         
         for i, ratio in enumerate(scales_ratios):
             count = n_per_scale + (1 if i < remainder else 0)
             
-            # Blend between skewed PDF and uniform PDF based on scale ratio. 
-            # Sharpest scale (lowest ratio) is highly skewed. Largest scale is nearly uniform.
-            uniform_weight = ratio / max_ratio
-            blended_pdf = (1.0 - uniform_weight) * skewed_pdf + uniform_weight * uniform_pdf
+            # Distribute centers evenly across the energy range
+            centers = torch.linspace(emin, emax, count)
             
-            # Compute numerical CDF
-            cdf = torch.cumsum(blended_pdf, dim=0)
-            cdf = cdf / cdf[-1] # normalize
-            
-            # Map uniform percentiles back into energy grid
-            target_probs = torch.linspace(0, 1, count)
-            indices = torch.searchsorted(cdf, target_probs) # find indices where cdf values match target probabilities
-            indices = torch.clamp(indices, 0, len(fine_grid) - 1) # clamp indices to be within the grid, defensive programming
-            centers = fine_grid[indices]
-            
-            # Initial `sigma`: estimate local spacing between points so denser regions 
-            # get sharper initial Gaussians, while tails remain appropriately broader
-            if count > 1:
-                local_spacing = torch.zeros(count)
-                local_spacing[0] = centers[1] - centers[0]
-                local_spacing[-1] = centers[-1] - centers[-2]
-                if count > 2:
-                    local_spacing[1:-1] = (centers[2:] - centers[:-2]) / 2.0
-            else:
-                local_spacing = torch.tensor([full_range])
-                
-            sigma = local_spacing * ratio * 2.0 
-            
-            centers_list.append(centers)
-            sigmas_list.append(sigma)
-            
-        # register_buffer to store constants the model needs but are not learnable parameters, we can 
-        # access it via self.centers in the forward pass
-        self.register_buffer('centers', torch.cat(centers_list)) 
+            # Finding the spacing between Gaussians
+            spacing = full_range / count
 
-        self.sigmas = nn.Parameter(torch.cat(sigmas_list))
+            # Computing constant `sigma` for Gaussian group
+            sigma = spacing * ratio * 2.0 # Factor of 2 for overlap
+            
+            # If remainder == 0, all Gaussian groups are initialized at the same point in the 
+            # grid. During learning, the different centers will be adjusted to better fit the data
+            centers_list.append(centers)
+            sigmas_list.append(torch.full_like(centers, sigma))
+            
+        # Keep centers learnable so the network can adjust peak locations
+        self.centers = nn.Parameter(torch.cat(centers_list))
+        
+        # register_buffer to store constants the model needs but are not learnable parameters, we can 
+        # access it via self.sigmas in the forward pass
+        self.register_buffer('sigmas', torch.cat(sigmas_list)) 
         
     def forward(self, energy_grid):
         """
@@ -116,7 +81,7 @@ class MultiScaleGaussianBasis(nn.Module):
         # [N_E, 1] - [1, n_basis] -> [N_E, n_basis]
         x_mu_diff = energy_grid.unsqueeze(1) - self.centers.unsqueeze(0)
 
-        # Clamp sigmas to prevent division by zero in case the optimizer pushes them too small
+        # Avoid clamping sigmas as they are fixed, but applying clamping just in case
         sigmas = self.sigmas.unsqueeze(0).clamp(min=1e-4) # [1, n_basis]
 
         B = torch.exp(-(x_mu_diff**2) / (2*sigmas**2)) # [N_E, n_basis]
