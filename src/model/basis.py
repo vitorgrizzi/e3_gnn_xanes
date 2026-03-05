@@ -76,8 +76,8 @@ class MultiScaleGaussianBasis(nn.Module):
             
             # Map uniform percentiles back into energy grid
             target_probs = torch.linspace(0, 1, count)
-            indices = torch.searchsorted(cdf, target_probs)
-            indices = torch.clamp(indices, 0, len(fine_grid) - 1)
+            indices = torch.searchsorted(cdf, target_probs) # find indices where cdf values match target probabilities
+            indices = torch.clamp(indices, 0, len(fine_grid) - 1) # clamp indices to be within the grid, defensive programming
             centers = fine_grid[indices]
             
             # Initial `sigma`: estimate local spacing between points so denser regions 
