@@ -27,6 +27,9 @@ training:
   weight_decay: 0.05 # weight decay
   lambda_grad: 150 # regularization factor for the gradient matching loss
   lambda_lap: 200 # regularization factor for the laplacian (2nd deriv) loss
+  use_loss_annealing: true # gradually turn on laplacian/derivative losses
+  warmup_epochs: 20 # number of epochs to train with pure MSE loss
+  fade_epochs: 10 # number of epochs to linearly ramp up derivative penalties
   patience: 20 # number of epochs to wait for improvement before stopping
   grad_clip: 5.0 # gradient clipping value
   save_path: "best_model.pt" # path to save the best model
