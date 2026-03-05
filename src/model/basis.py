@@ -1,131 +1,209 @@
 import torch
 import torch.nn as nn
 
+
 class MultiScaleGaussianBasis(nn.Module):
     """
-    Multi-Scale Gaussian Basis for spectral reconstruction.
-    
-    This module generates a basis of Gaussian functions with learnable widths (scales)
-    and fixed centers to capture both sharp features and broad oscillations.
+    Multi-scale Gaussian basis for spectral reconstruction.
 
-    OBS1: We are fixing the Gaussian centers and learning their widths. This is done to 
-          reduce the number of parameters and make the loss landscape smoother (easier to train).
+    The sharpest scale is concentrated around ``focus_energy`` using a right-skewed
+    density, and broader scales progressively flatten toward a uniform placement.
     """
-    def __init__(self, n_basis=128, emin=-10.0, emax=50.0, scales_ratios=[0.1, 0.5, 1.0], global_bg=True, peak_e=15.0):
+
+    def __init__(
+        self,
+        n_basis=128,
+        emin=-10.0,
+        emax=50.0,
+        scales_ratios=[0.1, 0.5, 1.0],
+        global_bg=True,
+        focus_energy=15.0,
+        focus_left_width_ratio=0.05,
+        focus_right_width_ratio=0.25,
+        min_uniform_weight=0.0,
+        max_uniform_weight=0.9,
+        flatten_exponent=1.0,
+        cdf_resolution=4096,
+        peak_e=None,
+    ):
         """
         Args:
             n_basis (int): Total number of basis functions.
             emin (float): Minimum energy value.
             emax (float): Maximum energy value.
-            scales_ratios (list): Relative initial widths/scales for each Gaussian group. There 
-                                  will be `len(scales_ratios)` Gaussian groups.
-            peak_e (float): The energy value where XANES transitions are most dense, used
-                            to center the right-skewed Gaussian center distribution.
+            scales_ratios (list): Relative widths for each Gaussian group.
+            focus_energy (float): Energy around which the sharpest scale is concentrated.
+            focus_left_width_ratio (float): Relative width of the left side of the skewed density.
+            focus_right_width_ratio (float): Relative width of the right side of the skewed density.
+            min_uniform_weight (float): Uniform mixing weight for the sharpest scale.
+            max_uniform_weight (float): Uniform mixing weight for the broadest scale.
+            flatten_exponent (float): Controls how quickly the distribution flattens with scale.
+            cdf_resolution (int): Number of points used for numerical CDF inversion.
+            peak_e (float | None): Backward-compatible alias for ``focus_energy``.
         """
         super().__init__()
+
+        if peak_e is not None:
+            focus_energy = peak_e
+
+        if n_basis <= 0:
+            raise ValueError("n_basis must be positive.")
+        if len(scales_ratios) == 0:
+            raise ValueError("scales_ratios must contain at least one scale.")
+        if any(r <= 0 for r in scales_ratios):
+            raise ValueError("scales_ratios must be strictly positive.")
+        if emax <= emin:
+            raise ValueError("emax must be greater than emin.")
+        if focus_left_width_ratio <= 0 or focus_right_width_ratio <= 0:
+            raise ValueError("Focus width ratios must be positive.")
+        if cdf_resolution < 2:
+            raise ValueError("cdf_resolution must be at least 2.")
+
         self.n_basis = n_basis
         self.emin = emin
         self.emax = emax
         self.global_bg = global_bg
-        self.peak_e = peak_e
-        
-        if self.global_bg:
-            # We add a learnable logistic/sigmoid function to act as an edge step background
-            # that saturates at energies > 0 and stays low at energies < 0
-            self.bg_center = nn.Parameter(torch.tensor(0.0))
-            self.bg_width = nn.Parameter(torch.tensor(2.0)) # Initial soft step
+        self.focus_energy = focus_energy
+        self.focus_left_width_ratio = focus_left_width_ratio
+        self.focus_right_width_ratio = focus_right_width_ratio
+        self.min_uniform_weight = min_uniform_weight
+        self.max_uniform_weight = max_uniform_weight
+        self.flatten_exponent = flatten_exponent
+        self.cdf_resolution = cdf_resolution
 
-        
-        # We split the basis roughly equally among the scales
+        if self.global_bg:
+            self.bg_center = nn.Parameter(torch.tensor(0.0))
+            self.bg_width = nn.Parameter(torch.tensor(2.0))
+
         n_scales = len(scales_ratios)
         n_per_scale = n_basis // n_scales
         remainder = n_basis % n_scales
-        
+
         centers_list = []
         sigmas_list = []
-        
-        # Base grid spacing
-        full_range = emax - emin
+        scale_slices = []
+        scale_uniform_weights = []
+
+        full_range = float(emax - emin)
+        fine_grid = torch.linspace(emin, emax, cdf_resolution)
+        skewed_pdf = self._build_skewed_pdf(
+            fine_grid=fine_grid,
+            focus_energy=focus_energy,
+            full_range=full_range,
+            left_width_ratio=focus_left_width_ratio,
+            right_width_ratio=focus_right_width_ratio,
+        )
+        uniform_pdf = torch.full_like(fine_grid, 1.0 / fine_grid.numel())
+        min_ratio = min(scales_ratios)
         max_ratio = max(scales_ratios)
-        
-        # Create a numerical CDF for the right-skewed peak density
-        fine_grid = torch.linspace(emin, emax, 5000)
-        w_left = full_range * 0.05 + 1e-6
-        w_right = full_range * 0.25 + 1e-6
-        
-        skewed_pdf = torch.where(fine_grid < peak_e,
-                                 torch.exp(-0.5 * ((fine_grid - peak_e) / w_left)**2),
-                                 torch.exp(-0.5 * ((fine_grid - peak_e) / w_right)**2))
-        skewed_pdf = skewed_pdf / skewed_pdf.sum()
-        
-        uniform_pdf = torch.ones_like(fine_grid) / len(fine_grid)
-        
+
+        offset = 0
         for i, ratio in enumerate(scales_ratios):
             count = n_per_scale + (1 if i < remainder else 0)
-            
-            # Blend between skewed PDF and uniform PDF based on scale ratio. 
-            # Sharpest scale (lowest ratio) is highly skewed. Largest scale is nearly uniform.
-            uniform_weight = ratio / max_ratio
+            scale_slices.append(slice(offset, offset + count))
+            offset += count
+
+            uniform_weight = self._uniform_weight(
+                ratio=ratio,
+                min_ratio=min_ratio,
+                max_ratio=max_ratio,
+                min_uniform_weight=min_uniform_weight,
+                max_uniform_weight=max_uniform_weight,
+                flatten_exponent=flatten_exponent,
+            )
+            scale_uniform_weights.append(uniform_weight)
             blended_pdf = (1.0 - uniform_weight) * skewed_pdf + uniform_weight * uniform_pdf
-            
-            # Compute numerical CDF
+
             cdf = torch.cumsum(blended_pdf, dim=0)
             cdf = cdf / cdf[-1]
-            
-            # Map uniform percentiles back into energy grid
             target_probs = torch.linspace(0, 1, count)
-            indices = torch.searchsorted(cdf, target_probs)
-            indices = torch.clamp(indices, 0, len(fine_grid) - 1)
-            centers = fine_grid[indices]
-            
-            # Initial `sigma`: estimate local spacing between points so denser regions 
-            # get sharper initial Gaussians, while tails remain appropriately broader
-            if count > 1:
-                local_spacing = torch.zeros(count)
-                local_spacing[0] = centers[1] - centers[0]
-                local_spacing[-1] = centers[-1] - centers[-2]
-                if count > 2:
-                    local_spacing[1:-1] = (centers[2:] - centers[:-2]) / 2.0
-            else:
-                local_spacing = torch.tensor([full_range])
-                
-            sigma = local_spacing * ratio * 2.0 
-            
+            centers = self._invert_cdf(fine_grid, cdf, target_probs)
+
+            local_spacing = self._local_spacing(centers, full_range)
+            sigma = local_spacing * ratio * 2.0
+
             centers_list.append(centers)
             sigmas_list.append(sigma)
-            
-        # Freeze centers so they don't abandon the tail regions (prevents downward slope at boundaries) 
-        self.register_buffer('centers', torch.cat(centers_list)) 
-        # register_buffer to store constants the model needs but are not learnable parameters, we can 
-        # access it via self.centers in the forward pass
 
-        # Keep sigmas learnable so the network can adjust peak sharpness
+        self.scale_counts = [s.stop - s.start for s in scale_slices]
+        self.scale_slices = scale_slices
+        self.scale_uniform_weights = scale_uniform_weights
+
+        self.register_buffer("centers", torch.cat(centers_list))
         self.sigmas = nn.Parameter(torch.cat(sigmas_list))
-        
+
     def forward(self, energy_grid):
         """
         Evaluate the basis functions on the provided energy grid.
-        
+
         Args:
             energy_grid (torch.Tensor): Shape [N_E], energy points.
-            
+
         Returns:
             torch.Tensor: Basis matrix B of shape [N_E, n_basis].
-                          B[i, j] = exp(- (E_i - mu_j)^2 / (2*sigma_j^2))
         """
-        # [N_E, 1] - [1, n_basis] -> [N_E, n_basis]
         x_mu_diff = energy_grid.unsqueeze(1) - self.centers.unsqueeze(0)
+        sigmas = self.sigmas.unsqueeze(0).clamp(min=1e-4)
+        B = torch.exp(-(x_mu_diff ** 2) / (2 * sigmas ** 2))
 
-        # Clamp sigmas to prevent division by zero in case the optimizer pushes them too small
-        sigmas = self.sigmas.unsqueeze(0).clamp(min=1e-4) # [1, n_basis]
-
-        B = torch.exp(-(x_mu_diff**2) / (2*sigmas**2)) # [N_E, n_basis]
-        
         if self.global_bg:
-            # Clamp width to prevent division by zero or overly sharp step that causes NaNs
             bg_width = self.bg_width.clamp(min=1e-3)
-            # Sigmoid models the cumulative edge step background
-            bg = torch.sigmoid((energy_grid - self.bg_center) / bg_width) # [N_E]
-            B = torch.cat([B, bg.unsqueeze(1)], dim=1) # [N_E, n_basis + 1]
-            
+            bg = torch.sigmoid((energy_grid - self.bg_center) / bg_width)
+            B = torch.cat([B, bg.unsqueeze(1)], dim=1)
+
         return B
+
+    @staticmethod
+    def _build_skewed_pdf(fine_grid, focus_energy, full_range, left_width_ratio, right_width_ratio):
+        focus = float(min(max(focus_energy, fine_grid[0].item()), fine_grid[-1].item()))
+        left_width = full_range * left_width_ratio + 1e-6
+        right_width = full_range * right_width_ratio + 1e-6
+        left_pdf = torch.exp(-0.5 * ((fine_grid - focus) / left_width) ** 2)
+        right_pdf = torch.exp(-0.5 * ((fine_grid - focus) / right_width) ** 2)
+        skewed_pdf = torch.where(fine_grid <= focus, left_pdf, right_pdf)
+        return skewed_pdf / skewed_pdf.sum()
+
+    @staticmethod
+    def _uniform_weight(
+        ratio,
+        min_ratio,
+        max_ratio,
+        min_uniform_weight,
+        max_uniform_weight,
+        flatten_exponent,
+    ):
+        if max_ratio == min_ratio:
+            progress = 1.0
+        else:
+            progress = (ratio - min_ratio) / (max_ratio - min_ratio)
+        progress = float(progress) ** float(flatten_exponent)
+        return float(min_uniform_weight + progress * (max_uniform_weight - min_uniform_weight))
+
+    @staticmethod
+    def _invert_cdf(fine_grid, cdf, target_probs):
+        if fine_grid.numel() == 1:
+            return fine_grid.expand_as(target_probs)
+
+        idx = torch.searchsorted(cdf, target_probs, right=False)
+        idx = idx.clamp(min=1, max=fine_grid.numel() - 1)
+
+        cdf_lo = cdf[idx - 1]
+        cdf_hi = cdf[idx]
+        grid_lo = fine_grid[idx - 1]
+        grid_hi = fine_grid[idx]
+
+        denom = (cdf_hi - cdf_lo).clamp(min=1e-12)
+        weight = (target_probs - cdf_lo) / denom
+        return grid_lo + weight * (grid_hi - grid_lo)
+
+    @staticmethod
+    def _local_spacing(centers, full_range):
+        if centers.numel() == 1:
+            return torch.tensor([full_range], dtype=centers.dtype, device=centers.device)
+
+        local_spacing = torch.empty_like(centers)
+        local_spacing[0] = centers[1] - centers[0]
+        local_spacing[-1] = centers[-1] - centers[-2]
+        if centers.numel() > 2:
+            local_spacing[1:-1] = (centers[2:] - centers[:-2]) / 2.0
+        return local_spacing.clamp(min=1e-4)

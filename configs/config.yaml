@@ -10,10 +10,17 @@ model:
   mul_1: 16     # number of basis functions for l=1
   mul_2: 8      # number of basis functions for l=2
   radial_basis_type: "bessel" # type of radial basis functions to use, can be "bessel" or "gaussian"
-  num_radial: 12 # number of radial basis functions (spherical bessel) used to encode interatomic distances 
+  num_radial: 12 # number of radial basis functions (spherical bessel) used to encode interatomic distances
   global_bg: true # whether to use a global background for the edge step
-  basis_scales: [0.5, 0.75, 1.25, 2.0] # intial variances of readout Gaussian basis functions
-  num_basis: 120 # number of readout Gaussian basis functions 
+  basis_scales: [0.5, 0.75, 1.25, 2.0] # initial variances of readout Gaussian basis functions
+  basis_focus_energy: 15.0 # energy where the sharpest readout basis functions cluster most strongly
+  basis_focus_left_width_ratio: 0.05 # left-side width of the skewed center density as a fraction of the energy range
+  basis_focus_right_width_ratio: 0.25 # right-side width of the skewed center density as a fraction of the energy range
+  basis_min_uniform_weight: 0.0 # uniform mixing for the sharpest scale
+  basis_max_uniform_weight: 0.9 # uniform mixing for the broadest scale
+  basis_flatten_exponent: 1.0 # how quickly broader scales flatten toward a uniform center placement
+  basis_cdf_resolution: 4096 # resolution of the numerical CDF used to place Gaussian centers
+  num_basis: 120 # number of readout Gaussian basis functions
   emin: -30.0 # minimum energy
   emax: 100.0 # maximum energy
   num_energy_points: 150 # number of energy points

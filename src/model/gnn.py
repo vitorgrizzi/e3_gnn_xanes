@@ -7,41 +7,51 @@ from src.model import MultiScaleGaussianBasis, AtomicEmbedding, CustomInteractio
 
 
 class XANES_E3GNN(nn.Module):
-    def __init__(self, 
-                 max_z=100, 
-                 num_layers=4, 
-                 lmax=2, 
-                 mul_0=64, 
-                 mul_1=32, 
-                 mul_2=16,
-                 r_max=5.0,
-                 num_basis=128,
-                 num_radial=10,
-                 radial_basis_type='bessel',
-                 basis_scales=[0.1, 0.5, 1.0],
-                 emin=-10, emax=50,
-                 dropout=0.2,
-                 global_bg=True):
+    def __init__(
+        self,
+        max_z=100,
+        num_layers=4,
+        lmax=2,
+        mul_0=64,
+        mul_1=32,
+        mul_2=16,
+        r_max=5.0,
+        num_basis=128,
+        num_radial=10,
+        radial_basis_type='bessel',
+        basis_scales=[0.1, 0.5, 1.0],
+        emin=-10,
+        emax=50,
+        dropout=0.2,
+        global_bg=True,
+        basis_focus_energy=15.0,
+        basis_focus_left_width_ratio=0.05,
+        basis_focus_right_width_ratio=0.25,
+        basis_min_uniform_weight=0.0,
+        basis_max_uniform_weight=0.9,
+        basis_flatten_exponent=1.0,
+        basis_cdf_resolution=4096,
+    ):
         super().__init__()
-        
+
         # Store multiplicities for use in forward()
         self.mul_0 = mul_0
         self.mul_1 = mul_1
         self.mul_2 = mul_2
-        
+
         # 1. Embeddings & Irreps
         self.embedding = AtomicEmbedding(max_z, mul_0)
-        
+
         # Define hidden irreps: e.g. 64x0e + 32x1o + 16x2e
         self.irreps_hidden = o3.Irreps(f"{mul_0}x0e + {mul_1}x1o + {mul_2}x2e")
-        
+
         # Input irreps to first layer: just scalars (0e) from embedding
         self.irreps_in = o3.Irreps(f"{mul_0}x0e")
-        
+
         # 2. Backbone Interaction Blocks
         self.layers = nn.ModuleList()
         self.irreps_sh = o3.Irreps.spherical_harmonics(lmax)
-        
+
         # Layer 0: scalars -> hidden
         self.layers.append(
             CustomInteractionBlock(
@@ -54,10 +64,10 @@ class XANES_E3GNN(nn.Module):
                 radial_basis_type=radial_basis_type,
             )
         )
-        
+
         # Subsequent layers: hidden -> hidden
         for _ in range(num_layers - 1):
-             self.layers.append(
+            self.layers.append(
                 CustomInteractionBlock(
                     irreps_in=self.irreps_hidden,
                     irreps_out=self.irreps_hidden,
@@ -67,71 +77,86 @@ class XANES_E3GNN(nn.Module):
                     dropout=dropout,
                     radial_basis_type=radial_basis_type,
                 )
-             )
-             
+            )
+
         # 3. Pooling
         self.pooling = AbsorberQueryAttention(
             irep_in=self.irreps_hidden,
-            hidden_dim=mul_0
+            hidden_dim=mul_0,
         )
-        
+
         # 4. Readout Head
         # s_a (mul_0) + context (mul_0) + norm_v (mul_1) + norm_t (mul_2)
         readout_dim = mul_0 + mul_0 + mul_1 + mul_2
-        
+
         # If we have a global background, the basis has size num_basis + 1
         n_out = num_basis + 1 if global_bg else num_basis
-        
+
         self.readout_mlp = nn.Sequential(
             nn.Linear(readout_dim, 128),
             nn.SiLU(),
             nn.Dropout(dropout),
-            nn.Linear(128, n_out)
+            nn.Linear(128, n_out),
         )
-        
+
         # Basis
         self.basis = MultiScaleGaussianBasis(
-            n_basis=num_basis, emin=emin, emax=emax, scales_ratios=basis_scales, global_bg=global_bg
+            n_basis=num_basis,
+            emin=emin,
+            emax=emax,
+            scales_ratios=basis_scales,
+            global_bg=global_bg,
+            focus_energy=basis_focus_energy,
+            focus_left_width_ratio=basis_focus_left_width_ratio,
+            focus_right_width_ratio=basis_focus_right_width_ratio,
+            min_uniform_weight=basis_min_uniform_weight,
+            max_uniform_weight=basis_max_uniform_weight,
+            flatten_exponent=basis_flatten_exponent,
+            cdf_resolution=basis_cdf_resolution,
         )
-        
+
     def forward(self, data):
         """
         Args:
             data: PyG Data object with pos, z, edge_index, edge_shift,
-                  batch, absorber_mask.  ``edge_shift`` carries the
+                  batch, absorber_mask. ``edge_shift`` carries the
                   Cartesian PBC displacement so that the true edge
                   vector is ``pos[dst] - pos[src] + edge_shift``.
         """
-        # Fallback for data.z vs data.x
         if hasattr(data, 'z') and data.z is not None:
-             z = data.z
+            z = data.z
         else:
-             raise ValueError("data.z is None")
-             
+            raise ValueError("data.z is None")
+
         pos = data.pos
         edge_index = data.edge_index
         batch = data.batch
-        
+
         # Embed
         h = self.embedding(z)
-        
-        # Edge attributes  (PBC-aware)
+
+        # Edge attributes (PBC-aware)
         edge_src, edge_dst = edge_index
         edge_shift = getattr(data, 'edge_shift', torch.zeros_like(pos[edge_src]))
         vec = pos[edge_dst] - pos[edge_src] + edge_shift
         edge_len = vec.norm(dim=1)
         edge_sh = o3.spherical_harmonics(
-            self.irreps_sh, vec, normalize=True, normalization='component'
+            self.irreps_sh,
+            vec,
+            normalize=True,
+            normalization='component',
         )
-        # Think of spherical harmonics as fixed "directional filters" for the edges
-        
-        # Interaction Blocks
+
+        # Interaction blocks
         for layer in self.layers:
             h = layer(
-                x=h, edge_attr=edge_sh, edge_length=edge_len,
-                edge_src=edge_src, edge_dst=edge_dst,
+                x=h,
+                edge_attr=edge_sh,
+                edge_length=edge_len,
+                edge_src=edge_src,
+                edge_dst=edge_dst,
             )
-            
+
         # Slice features by irrep type using stored multiplicities
         current_idx = 0
         slices = []
@@ -139,47 +164,52 @@ class XANES_E3GNN(nn.Module):
             length = multiplicity * irrep.dim
             slices.append((current_idx, current_idx + length))
             current_idx += length
-            
+
         s_range, v_range, t_range = slices[0], slices[1], slices[2]
-        
+
         scalars_all = h[:, s_range[0]:s_range[1]]
         l1_all = h[:, v_range[0]:v_range[1]].reshape(-1, self.mul_1, 3)
         l2_all = h[:, t_range[0]:t_range[1]].reshape(-1, self.mul_2, 5)
-        
-        # Absorber-specific features aggregation (Linear combination of sites)
+
+        # Absorber-specific features aggregation (linear combination of sites)
         mask = data.absorber_mask
         batch_abs = batch[mask]
         num_graphs = int(batch.max()) + 1
-        
-        s_site = scalars_all[mask] 
-        v_site = l1_all[mask]      
-        t_site = l2_all[mask]      
-        
+
+        s_site = scalars_all[mask]
+        v_site = l1_all[mask]
+        t_site = l2_all[mask]
+
         # Invariant norms per site (more stable and rotation invariant)
-        nv_site = torch.norm(v_site, dim=-1) # [N_absorbers, mul_1]
-        nt_site = torch.norm(t_site, dim=-1) # [N_absorbers, mul_2]
+        nv_site = torch.norm(v_site, dim=-1)
+        nt_site = torch.norm(t_site, dim=-1)
 
         # Average features across absorbers per graph
         s_a = scatter_add(s_site, batch_abs, dim=0, dim_size=num_graphs)
         norm_v = scatter_add(nv_site, batch_abs, dim=0, dim_size=num_graphs)
         norm_t = scatter_add(nt_site, batch_abs, dim=0, dim_size=num_graphs)
-        
-        n_abs = scatter_add(torch.ones_like(batch_abs, dtype=torch.float), batch_abs, dim=0, dim_size=num_graphs).clamp(min=1).unsqueeze(1)
+
+        n_abs = scatter_add(
+            torch.ones_like(batch_abs, dtype=torch.float),
+            batch_abs,
+            dim=0,
+            dim_size=num_graphs,
+        ).clamp(min=1).unsqueeze(1)
         s_a, norm_v, norm_t = s_a / n_abs, norm_v / n_abs, norm_t / n_abs
-        
-        # Context Pooling
-        c = self.pooling(h, mask, batch) # [N_graph, mul_0]
-        
+
+        # Context pooling
+        c = self.pooling(h, mask, batch)
+
         # Concatenate & predict coefficients
-        z_readout = torch.cat([s_a, c, norm_v, norm_t], dim=1) 
+        z_readout = torch.cat([s_a, c, norm_v, norm_t], dim=1)
         coeffs = self.readout_mlp(z_readout)
-        
+
         return coeffs
-    
+
     def predict_spectra(self, data, energy_grid):
-        coeffs = self.forward(data) # [n_graphs_in_batch, n_basis]
-        energy_grid = energy_grid.to(coeffs.device) # device guard
-        basis_matrix = self.basis(energy_grid) # [N_E, n_basis]
-        
-        spectra = torch.matmul(coeffs, basis_matrix.T) # [n_graphs_in_batch, N_E]
+        coeffs = self.forward(data)
+        energy_grid = energy_grid.to(coeffs.device)
+        basis_matrix = self.basis(energy_grid)
+
+        spectra = torch.matmul(coeffs, basis_matrix.T)
         return spectra

@@ -19,7 +19,17 @@ class ModelConfig:
     r_max: float = 5.0
     num_basis: int = 128
     num_radial: int = 10
+    radial_basis_type: str = 'bessel'
     basis_scales: List[float] = field(default_factory=lambda: [0.1, 0.5, 1.0])
+    basis_focus_energy: float = 15.0
+    basis_focus_left_width_ratio: float = 0.05
+    basis_focus_right_width_ratio: float = 0.25
+    basis_min_uniform_weight: float = 0.0
+    basis_max_uniform_weight: float = 0.9
+    basis_flatten_exponent: float = 1.0
+    basis_cdf_resolution: int = 4096
+    global_bg: bool = True
+    dropout: float = 0.1
     emin: float = -10.0
     emax: float = 50.0
 
@@ -33,7 +43,7 @@ class TrainingConfig:
     lambda_grad: float = 0.5
     patience: int = 15
     grad_clip: float = 5.0
-    save_path: Optional[str] = "best_model.pt"
+    save_path: Optional[str] = 'best_model.pt'
     device: Optional[str] = None  # auto-detect if None
 
     def get_device(self) -> torch.device:
@@ -46,7 +56,7 @@ def build_from_configs(model_cfg: ModelConfig, train_cfg: TrainingConfig):
     """
     Convenience factory: build model, criterion, and legacy config dict
     from typed config objects.
-    
+
     Returns:
         (model, criterion, config_dict)
     """
@@ -63,9 +73,19 @@ def build_from_configs(model_cfg: ModelConfig, train_cfg: TrainingConfig):
         r_max=model_cfg.r_max,
         num_basis=model_cfg.num_basis,
         num_radial=model_cfg.num_radial,
+        radial_basis_type=model_cfg.radial_basis_type,
         basis_scales=model_cfg.basis_scales,
         emin=model_cfg.emin,
         emax=model_cfg.emax,
+        dropout=model_cfg.dropout,
+        global_bg=model_cfg.global_bg,
+        basis_focus_energy=model_cfg.basis_focus_energy,
+        basis_focus_left_width_ratio=model_cfg.basis_focus_left_width_ratio,
+        basis_focus_right_width_ratio=model_cfg.basis_focus_right_width_ratio,
+        basis_min_uniform_weight=model_cfg.basis_min_uniform_weight,
+        basis_max_uniform_weight=model_cfg.basis_max_uniform_weight,
+        basis_flatten_exponent=model_cfg.basis_flatten_exponent,
+        basis_cdf_resolution=model_cfg.basis_cdf_resolution,
     )
 
     criterion = SpectrumLoss(lambda_grad=train_cfg.lambda_grad)

@@ -278,7 +278,14 @@ def main(cfg: DictConfig):
         emin=cfg.model.emin,
         emax=cfg.model.emax,
         dropout=cfg.model.get('dropout', 0.1),
-        global_bg=cfg.model.get('global_bg', True)
+        global_bg=cfg.model.get('global_bg', True),
+        basis_focus_energy=cfg.model.get('basis_focus_energy', 15.0),
+        basis_focus_left_width_ratio=cfg.model.get('basis_focus_left_width_ratio', 0.05),
+        basis_focus_right_width_ratio=cfg.model.get('basis_focus_right_width_ratio', 0.25),
+        basis_min_uniform_weight=cfg.model.get('basis_min_uniform_weight', 0.0),
+        basis_max_uniform_weight=cfg.model.get('basis_max_uniform_weight', 0.9),
+        basis_flatten_exponent=cfg.model.get('basis_flatten_exponent', 1.0),
+        basis_cdf_resolution=cfg.model.get('basis_cdf_resolution', 4096),
     ).to(device)
     
     # 5. Optimization & Criterion
