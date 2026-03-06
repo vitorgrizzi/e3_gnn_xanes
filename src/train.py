@@ -181,7 +181,15 @@ def run_training(model, train_loader, val_loader, config, model_config=None):
         val_loss, val_mse, val_grad, val_lap = validate(model, val_loader, criterion, device, energy_grid)
         epoch_time_min = (time.time() - epoch_start) / 60
 
-        scheduler.step(val_loss) # Reduce LR if `val_loss` doesn't decrease
+        is_annealing_phase = use_loss_annealing and epoch < warmup_epochs + fade_epochs
+        
+        # Reset best_val_loss at the first epoch of full integration 
+        # so the shifted loss scale doesn't prevent future checkpointing
+        if use_loss_annealing and epoch == warmup_epochs + fade_epochs:
+            best_val_loss = float('inf')
+
+        if not is_annealing_phase:
+            scheduler.step(val_loss) # Reduce LR if `val_loss` doesn't decrease
         current_lr = optimizer.param_groups[0]['lr']
         
         print(
@@ -233,10 +241,11 @@ def run_training(model, train_loader, val_loader, config, model_config=None):
                     'model_config': model_config
                 }, save_path)
         else:
-            epochs_without_improvement += 1
-            if epochs_without_improvement >= config['patience']:
-                print(f"Early stopping at epoch {epoch+1}")
-                break
+            if not is_annealing_phase:
+                epochs_without_improvement += 1
+                if epochs_without_improvement >= config['patience']:
+                    print(f"Early stopping at epoch {epoch+1}")
+                    break
 
 
 def main(cfg: DictConfig):
