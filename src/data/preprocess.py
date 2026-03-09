@@ -18,6 +18,7 @@ def main():
     parser.add_argument("--config", type=str, default="configs/config.yaml", help="Path to project config file")
     parser.add_argument("--rmax", type=float, default=None, help="Cutoff radius (Å)")
     parser.add_argument("--preprocess", action="store_true", default=True, help="Force reprocessing.")
+    parser.add_argument("--filter_multiple_absorbers", action="store_true", help="Only keep records with exactly one absorber.")
 
     args = parser.parse_args()
 
@@ -35,11 +36,13 @@ def main():
     db_path = os.path.abspath(args.db_path)
     root_path = os.path.abspath(args.root if args.root else cfg.data.root)
     r_max = args.rmax if args.rmax else cfg.data.r_max
+    filter_multiple_absorbers = args.filter_multiple_absorbers or cfg.data.get('filter_multiple_absorbers', False)
     
     print(f"--- Preprocessing Dataset ---")
     print(f"DB Path:      {db_path}")
     print(f"Root Path:    {root_path}")
     print(f"R Max:        {r_max}")
+    print(f"Filter Mult:  {filter_multiple_absorbers}")
     print(f"Energy Grid:  {cfg.model.emin} to {cfg.model.emax} ({cfg.model.num_energy_points} pts)")
     print("-" * 30)
 
@@ -51,7 +54,8 @@ def main():
         emin=cfg.model.emin,
         emax=cfg.model.emax,
         num_energy_points=cfg.model.num_energy_points,
-        preprocess=args.preprocess
+        preprocess=args.preprocess,
+        filter_multiple_absorbers=filter_multiple_absorbers
     )
     
     print(f"\nSuccessfully processed {len(dataset)} graphs.")

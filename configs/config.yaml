@@ -45,6 +45,7 @@ data:
   num_workers: 0 # number of workers for data loading
   r_max: 5.0 # maximum radius
   preprocess: false # whether to preprocess the data
+  filter_multiple_absorbers: false # whether to filter out graphs with more than one absorber
 
 wandb:
   project: "xanes_e3gnn" # project name

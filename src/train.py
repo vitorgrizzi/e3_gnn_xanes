@@ -285,6 +285,7 @@ def main(cfg: DictConfig):
         emax=cfg.model.emax,
         num_energy_points=cfg.model.num_energy_points,
         preprocess=cfg.data.get('preprocess', False),
+        filter_multiple_absorbers=cfg.data.get('filter_multiple_absorbers', False),
     )
     
     # Split

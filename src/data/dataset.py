@@ -47,6 +47,7 @@ class XANESDataset(InMemoryDataset):
         emax: float = 100.0,
         num_energy_points: int = 150,
         preprocess: bool = False,
+        filter_multiple_absorbers: bool = False,
         transform=None,
         pre_transform=None,
     ):
@@ -58,6 +59,7 @@ class XANESDataset(InMemoryDataset):
             r_max: Cutoff radius (Å) for graph connectivity.
             emin / emax / num_energy_points: Target energy grid for spectrum interpolation.
             preprocess: If True, forces reprocessing of the dataset even if processed files exist.
+            filter_multiple_absorbers: If True, only keep graphs with exactly one absorber atom.
         """
         self.db_path = db_path
         self.r_max = r_max
@@ -65,6 +67,7 @@ class XANESDataset(InMemoryDataset):
         self.emax = emax
         self.num_energy_points = num_energy_points
         self.target_energy_grid = torch.linspace(emin, emax, num_energy_points)
+        self.filter_multiple_absorbers = filter_multiple_absorbers
         
         # 1. Direct path loading
         if processed_path is not None and os.path.exists(processed_path):
@@ -135,6 +138,9 @@ class XANESDataset(InMemoryDataset):
                     if self.pre_transform is not None:
                         data = self.pre_transform(data)
                         
+                    if self.filter_multiple_absorbers and data.absorber_mask.sum() != 1:
+                        continue
+
                     data_list.append(data)
                 except ValueError as e:
                     print(f"Skipping row id={row.id}: {e}")
@@ -155,7 +161,7 @@ class XANESDataset(InMemoryDataset):
         self.save(data_list, self.processed_paths[0])
 
 
-def atoms_to_graph(atoms, r_max=5.0):
+def atoms_to_graph(atoms, r_max=6.0):
     """
     Converts an ASE Atoms object into a PyG Data object ready for E3GNN.
     
@@ -196,59 +202,6 @@ def atoms_to_graph(atoms, r_max=5.0):
     ) # Note that 'y' is added later in the process() method.
 
     return data
-def create_dummy_data(num_graphs=2, num_energy_points=50, emin=-10.0, emax=50.0):
-    """
-    Creates a synthetic dataset for testing purposes.
-    
-    Returns:
-        tuple: (list of torch_geometric.data.Data, energy_grid)
-    """
-    energy_grid = torch.linspace(emin, emax, num_energy_points)
-    data_list = []
-    
-    for _ in range(num_graphs):
-        num_nodes = torch.randint(8, 16, (1,)).item()
-        
-        # Structural tensors
-        z = torch.randint(1, 100, (num_nodes,), dtype=torch.long)
-        pos = torch.randn(num_nodes, 3)
-        cell = torch.eye(3) * 10.0
-        
-        # Random edges
-        num_edges = num_nodes * 4
-        edge_index = torch.stack([
-            torch.randint(0, num_nodes, (num_edges,)),
-            torch.randint(0, num_nodes, (num_edges,))
-        ], dim=0)
-        
-        # Remove self-loops
-        mask = edge_index[0] != edge_index[1]
-        edge_index = edge_index[:, mask]
-        
-        # PBC edge shifts
-        edge_shift = torch.randn(edge_index.size(1), 3)
-        
-        # Absorber site
-        absorber_mask = torch.zeros(num_nodes, dtype=torch.bool)
-        absorber_idx = torch.randint(0, num_nodes, (1,)).item()
-        absorber_mask[absorber_idx] = True
-        
-        # Target spectrum
-        y = torch.randn(1, num_energy_points)
-        
-        data = Data(
-            z=z,
-            pos=pos,
-            cell=cell,
-            edge_index=edge_index,
-            edge_shift=edge_shift,
-            absorber_mask=absorber_mask,
-            y=y
-        )
-        data_list.append(data)
-        
-    return data_list, energy_grid
-
 
 if __name__ == "__main__":
     # Example usage / Testing script
@@ -258,6 +211,7 @@ if __name__ == "__main__":
     parser.add_argument("--db", type=str, default="xanes_data.db", help="Path to ASE SQLite database.")
     parser.add_argument("--root", type=str, default="data/processed_test", help="Root directory for PyG processing.")
     parser.add_argument("--rmax", type=float, default=5.0, help="Neighbor cutoff radius.")
+    parser.add_argument("--filter-multiple-absorbers", default=False, help="Only keep graphs with exactly one absorber.")
     args = parser.parse_args()
 
     # Initialize dataset
@@ -269,6 +223,7 @@ if __name__ == "__main__":
         root=args.root,
         db_path=args.db,
         r_max=args.rmax,
+        filter_multiple_absorbers=args.filter_multiple_absorbers,
         preprocess=True # Force rebuild for testing
     )
 
