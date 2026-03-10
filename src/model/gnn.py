@@ -50,7 +50,6 @@ class XANES_E3GNN(nn.Module):
                 irreps_sh=self.irreps_sh,
                 number_of_radial_basis_functions=num_radial,
                 r_max=r_max,
-                dropout=dropout,
                 radial_basis_type=radial_basis_type,
             )
         )
@@ -64,7 +63,6 @@ class XANES_E3GNN(nn.Module):
                     irreps_sh=self.irreps_sh,
                     number_of_radial_basis_functions=num_radial,
                     r_max=r_max,
-                    dropout=dropout,
                     radial_basis_type=radial_basis_type,
                 )
              )
@@ -85,6 +83,7 @@ class XANES_E3GNN(nn.Module):
         self.readout_mlp = nn.Sequential(
             nn.Linear(readout_dim, 128),
             nn.SiLU(),
+            nn.Dropout(p=dropout) if dropout > 0.0 else nn.Identity(),
             nn.Linear(128, n_out)
         )
         

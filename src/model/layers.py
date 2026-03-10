@@ -41,14 +41,12 @@ class CustomInteractionBlock(nn.Module):
                  irreps_sh,
                  number_of_radial_basis_functions,
                  r_max=5.0,
-                 dropout=0.1,
                  radial_basis_type='bessel'):
         super().__init__()
         
         self.irreps_in = o3.Irreps(irreps_in)
         self.irreps_out = o3.Irreps(irreps_out)
         self.irreps_sh = o3.Irreps(irreps_sh)
-        self.dropout = nn.Dropout(dropout)
         
         # --- Build Gate irreps ---
         # Gate needs: scalar activations for l=0, and one gate scalar per
@@ -159,9 +157,6 @@ class CustomInteractionBlock(nn.Module):
         # 2. Message computation via tensor product
         x_j = x[edge_src]
         m_ij = self.tp(x_j, edge_attr, weights)
-        
-        # Apply dropout to messages before aggregation
-        m_ij = self.dropout(m_ij)
         
         # 3. Aggregate messages at destination nodes (Mean is more stable than Add)
         if HAS_TORCH_SCATTER:
