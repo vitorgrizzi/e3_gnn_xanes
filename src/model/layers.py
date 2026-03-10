@@ -113,12 +113,12 @@ class CustomInteractionBlock(nn.Module):
         )
         
         # --- Residual connection ---
-        self.has_residual = (self.irreps_in == self.irreps_out)
+        self.has_residual = (self.irreps_in == self.irreps_out) # `True` only from the second layer onwards
         self.sc = None
         if self.has_residual:
             self.sc = o3.Linear(self.irreps_in, self.irreps_out)
-            
-            
+                
+    
 
     def radial_basis(self, length):
         """

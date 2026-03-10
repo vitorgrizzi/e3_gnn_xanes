@@ -95,7 +95,7 @@ class XANESDataset(InMemoryDataset):
         # Note that processed_path is created by the super().__init__() method
 
     @staticmethod
-    def normalize_xanes(conv_file=None, E=None, mu=None, E0=None, pre_range=(-150, -30), post_range=(50, 200), post_order=2):
+    def normalize_xanes(E=None, mu=None, E0=None, pre_range=(-150, -30), post_range=(80, 200), post_order=2):
         """
         Normalize a XANES spectrum using pre-edge subtraction and post-edge scaling.
         """
@@ -106,22 +106,18 @@ class XANESDataset(InMemoryDataset):
             raise ValueError("Provide both E and mu.")
 
         if E0 is None:
-            dmu_dE = np.gradient(mu, E)
-            E0 = E[np.argmax(dmu_dE)]
+            if np.min(E) <= 0 <= np.max(E):
+                E0 = 0.0
+            else:
+                dmu_dE = np.gradient(mu, E)
+                E0 = E[np.argmax(dmu_dE)]
 
         # Define fitting windows
         pre_mask = (E >= E0 + pre_range[0]) & (E <= E0 + pre_range[1])
         post_mask = (E >= E0 + post_range[0]) & (E <= E0 + post_range[1])
 
-        if pre_mask.sum() < 2:
-            pre_mask = (E < E0 - 10)
-            if pre_mask.sum() < 2:
-                return np.column_stack([E, mu]), np.column_stack([E, mu])
-
-        if post_mask.sum() < post_order + 1:
-            post_mask = (E > E0 + 20)
-            if post_mask.sum() < post_order + 1:
-                return np.column_stack([E, mu]), np.column_stack([E, mu])
+        if pre_mask.sum() < 2 or post_mask.sum() < post_order + 1:
+            raise ValueError("Not enough points in pre-edge or post-edge ranges for normalization.")
 
         # Fits
         p_pre = np.polyfit(E[pre_mask], mu[pre_mask], 1)
@@ -131,7 +127,7 @@ class XANESDataset(InMemoryDataset):
         step = np.polyval(p_post, E0) - np.polyval(p_pre, E0)
 
         if np.isclose(step, 0.0):
-            return np.column_stack([E, mu]), np.column_stack([E, mu])
+            raise ValueError("Computed edge step is zero or too close to zero.")
 
         mu_norm = (mu - pre_line) / step
         return np.column_stack([E, mu_norm]), np.column_stack([E, mu])
@@ -179,9 +175,10 @@ class XANESDataset(InMemoryDataset):
                     print(f"Skipping row id={row.id}: Normalization failed - {e}")
                     continue
 
+                # Interpolating the xanes using `uniform_energy_grid`
                 interp_y = np.interp(uniform_energy_grid, raw_e, norm_y)
-                y = torch.tensor(interp_y, dtype=torch.float).unsqueeze(0) # (1, N_E) xanes on uniform energy grid
-                # (1, N_E) to indicate PyG that `y` is a graph property, not a node property.
+                y = torch.tensor(interp_y, dtype=torch.float).unsqueeze(0)
+                # y has (1, N_E) shape to indicate PyG that `y` is a graph property, not a node property.
 
                 # Use helper to build graph
                 try:
