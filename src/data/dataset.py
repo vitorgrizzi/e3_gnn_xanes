@@ -14,6 +14,8 @@ from ase.neighborlist import neighbor_list
 from tqdm import tqdm
 
 
+
+
 class XANESDataset(InMemoryDataset):
     """
     In-memory dataset for XANES spectra prediction.
@@ -92,6 +94,48 @@ class XANESDataset(InMemoryDataset):
             self.load(self.processed_paths[0])
         # Note that processed_path is created by the super().__init__() method
 
+    @staticmethod
+    def normalize_xanes(conv_file=None, E=None, mu=None, E0=None, pre_range=(-150, -30), post_range=(50, 200), post_order=2):
+        """
+        Normalize a XANES spectrum using pre-edge subtraction and post-edge scaling.
+        """
+        if E is not None and mu is not None:
+            E = np.asarray(E, dtype=float)
+            mu = np.asarray(mu, dtype=float)
+        else:
+            raise ValueError("Provide both E and mu.")
+
+        if E0 is None:
+            dmu_dE = np.gradient(mu, E)
+            E0 = E[np.argmax(dmu_dE)]
+
+        # Define fitting windows
+        pre_mask = (E >= E0 + pre_range[0]) & (E <= E0 + pre_range[1])
+        post_mask = (E >= E0 + post_range[0]) & (E <= E0 + post_range[1])
+
+        if pre_mask.sum() < 2:
+            pre_mask = (E < E0 - 10)
+            if pre_mask.sum() < 2:
+                return np.column_stack([E, mu]), np.column_stack([E, mu])
+
+        if post_mask.sum() < post_order + 1:
+            post_mask = (E > E0 + 20)
+            if post_mask.sum() < post_order + 1:
+                return np.column_stack([E, mu]), np.column_stack([E, mu])
+
+        # Fits
+        p_pre = np.polyfit(E[pre_mask], mu[pre_mask], 1)
+        p_post = np.polyfit(E[post_mask], mu[post_mask], post_order)
+
+        pre_line = np.polyval(p_pre, E)
+        step = np.polyval(p_post, E0) - np.polyval(p_pre, E0)
+
+        if np.isclose(step, 0.0):
+            return np.column_stack([E, mu]), np.column_stack([E, mu])
+
+        mu_norm = (mu - pre_line) / step
+        return np.column_stack([E, mu_norm]), np.column_stack([E, mu])
+
     # ------------------------------------------------------------------
     # PyG boilerplate
     # ------------------------------------------------------------------
@@ -126,7 +170,16 @@ class XANESDataset(InMemoryDataset):
                 sort_idx = np.argsort(raw_spectrum[:, 0])
                 raw_e = raw_spectrum[sort_idx, 0]
                 raw_y = raw_spectrum[sort_idx, 1]
-                interp_y = np.interp(uniform_energy_grid, raw_e, raw_y)
+                
+                # Apply the proper physical normalization before interpolation
+                try:
+                    norm_xas, _ = self.normalize_xanes(E=raw_e, mu=raw_y)
+                    norm_y = norm_xas[:, 1]
+                except Exception as e:
+                    print(f"Skipping row id={row.id}: Normalization failed - {e}")
+                    continue
+
+                interp_y = np.interp(uniform_energy_grid, raw_e, norm_y)
                 y = torch.tensor(interp_y, dtype=torch.float).unsqueeze(0) # (1, N_E) xanes on uniform energy grid
                 # (1, N_E) to indicate PyG that `y` is a graph property, not a node property.
 
@@ -147,17 +200,7 @@ class XANESDataset(InMemoryDataset):
                     continue
 
         if len(data_list) > 0:
-            # Scale targets so the mean of their maximums is exactly 1.0
-            maxes = [d.y.max().item() for d in data_list]
-            average_max = sum(maxes) / len(maxes)
-            
-            if average_max > 0:
-                scale_factor = 1.0 / average_max
-                print(f"Dataset scaling factor: {scale_factor:.4f} (Average max before scaling was {average_max:.4f})")
-                for d in data_list:
-                    d.y = d.y * scale_factor
-                    
-        print(f"Processed {len(data_list)} graphs from {self.db_path}")
+            print(f"Processed {len(data_list)} graphs from {self.db_path} with proper physical edge-step normalization.")
         self.save(data_list, self.processed_paths[0])
 
 
