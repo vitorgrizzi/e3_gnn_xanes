@@ -95,7 +95,7 @@ class XANESDataset(InMemoryDataset):
         # Note that processed_path is created by the super().__init__() method
 
     @staticmethod
-    def normalize_xanes(E=None, mu=None, E0=None, pre_range=(-150, -5), post_range=(80, 200), post_order=2):
+    def normalize_xanes(E=None, mu=None, E0=None, pre_range=(-55, -20), post_range=(80, 150), post_order=1):
         """
         Normalize a XANES spectrum using pre-edge subtraction and post-edge scaling.
         """
@@ -171,7 +171,8 @@ class XANESDataset(InMemoryDataset):
                 raw_e = raw_spectrum[sort_idx, 0]
                 raw_y = raw_spectrum[sort_idx, 1]
                 
-                # Apply the proper physical normalization before interpolation
+                # Apply the proper physical normalization before interpolation since the 
+                # energy range of the raw data is larger than `uniform_energy_grid`
                 try:
                     norm_xas, _ = self.normalize_xanes(E=raw_e, mu=raw_y)
                     norm_y = norm_xas[:, 1]
