@@ -95,7 +95,7 @@ class XANESDataset(InMemoryDataset):
         # Note that processed_path is created by the super().__init__() method
 
     @staticmethod
-    def normalize_xanes(E=None, mu=None, E0=None, pre_range=(-150, -30), post_range=(80, 200), post_order=2):
+    def normalize_xanes(E=None, mu=None, E0=None, pre_range=(-150, -5), post_range=(80, 200), post_order=2):
         """
         Normalize a XANES spectrum using pre-edge subtraction and post-edge scaling.
         """

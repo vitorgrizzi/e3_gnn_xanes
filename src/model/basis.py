@@ -92,5 +92,12 @@ class MultiScaleGaussianBasis(nn.Module):
             # Sigmoid models the cumulative edge step background
             bg = torch.sigmoid((energy_grid - self.bg_center) / bg_width) # [N_E]
             B = torch.cat([B, bg.unsqueeze(1)], dim=1) # [N_E, n_basis + 1]
+            # sigmoid is f(x) = 1 / (1 + exp(-(x-x0)/w)). In the limit of bg_width -> 0, 
+            # this becomes a step function. In the limit of bg_width -> inf, this becomes 
+            # a constant y=0.5. Also, bg_center is the center of the sigmoid (when the 
+            # function value is 0.5). These two parameters are learned and fixed for all 
+            # atoms in the batch, but the scale of the sigmoid (the constant multiplying 
+            # it) is different for each atom (predicted along the coefficients c_k of 
+            # the Gaussians).
             
         return B
