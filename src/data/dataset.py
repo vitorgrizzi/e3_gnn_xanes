@@ -147,7 +147,11 @@ class XANESDataset(InMemoryDataset):
     # class that PyG expect us to override.
     def process(self):
         if self.db_path is None:
-            return
+            raise RuntimeError(
+                "PyG is attempting to process the dataset (because the processed .pt cache "
+                "file was not found), but `db_path` is None. Please provide `data.db_path` "
+                "in your config or CLI arguments so the dataset can be built."
+            )
 
         data_list = []
         uniform_energy_grid = self.target_energy_grid.numpy()

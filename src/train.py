@@ -309,7 +309,7 @@ def main(cfg: DictConfig):
         mul_0=cfg.model.mul_0,
         mul_1=cfg.model.mul_1,
         mul_2=cfg.model.mul_2,
-        r_max=cfg.model.r_max,
+        r_max=cfg.data.r_max,
         num_basis=cfg.model.num_basis,
         num_radial=cfg.model.num_radial,
         radial_basis_type=cfg.model.get('radial_basis_type', 'bessel'),

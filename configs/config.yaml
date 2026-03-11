@@ -8,7 +8,6 @@ model:
   mul_0: 32     # number of basis functions for l=0
   mul_1: 16     # number of basis functions for l=1
   mul_2: 8      # number of basis functions for l=2
-  r_max: 5.0    # maximum radius
   radial_basis_type: "bessel" # type of radial basis functions to use, can be "bessel" or "gaussian"
   num_radial: 12 # number of radial basis functions (spherical bessel) used to encode interatomic distances 
   basis_scales: [0.5, 0.75, 1.25, 2.0] # intial variances of readout Gaussian basis functions
@@ -43,7 +42,7 @@ data:
   db_path: null # path to xanes_dataset.db (set via CLI or override)
   processed_path: null # direct path to .pt file (set via CLI or override)
   num_workers: 0 # number of workers for data loading
-  r_max: 5.0 # maximum radius
+  r_max: 6.0 # maximum radius
   preprocess: false # whether to preprocess the data
   filter_multiple_absorbers: false # whether to filter out graphs with more than one absorber
 
