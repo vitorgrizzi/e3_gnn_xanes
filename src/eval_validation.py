@@ -36,7 +36,7 @@ def main():
     dataset = XANESDataset(
         root=root_path,
         db_path=db_path,
-        r_max=cfg.model.r_max,
+        r_max=cfg.data.r_max,
         emin=cfg.model.emin,
         emax=cfg.model.emax,
         num_energy_points=cfg.model.num_energy_points,

@@ -98,6 +98,9 @@ class MultiScaleGaussianBasis(nn.Module):
             # function value is 0.5). These two parameters are learned and fixed for all 
             # atoms in the batch, but the scale of the sigmoid (the constant multiplying 
             # it) is different for each atom (predicted along the coefficients c_k of 
-            # the Gaussians).
+            # the Gaussians). 
+            
+            # Note: This sigmoid function is exactly the Fermi-Dirac distribution, where 
+            #       bg_width = k_b*T and bg_center = E0. 
             
         return B

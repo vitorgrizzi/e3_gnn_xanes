@@ -31,47 +31,45 @@ def load_model(checkpoint_path, config_path=None):
         state_dict = checkpoint
         saved_config = None
 
-    if config_path is None and saved_config is None:
+    if config_path is None:
         # Default to standard config location
         config_path = "configs/config.yaml" 
     
+    print(f"Loading full configuration from {config_path}...")
+    cfg = OmegaConf.load(config_path)
+
     if saved_config is not None:
         print("Using model configuration from checkpoint.")
         # Wrap in OmegaConf so we can use dot notation even for raw dicts
         cfg_model = OmegaConf.create(saved_config)
+        # Update full cfg layout with the checkpointed model dict
+        cfg.model = cfg_model
     else:
-        print(f"Loading model configuration from {config_path}...")
-        cfg = OmegaConf.load(config_path)
         cfg_model = cfg.model
     
     # Initialize model with config parameters
     model = XANES_E3GNN(
-        max_z=cfg_model.max_z,
-        num_layers=cfg_model.num_layers,
-        lmax=cfg_model.lmax,
-        mul_0=cfg_model.mul_0,
-        mul_1=cfg_model.mul_1,
-        mul_2=cfg_model.mul_2,
-        r_max=cfg_model.r_max,
-        num_basis=cfg_model.num_basis,
-        num_radial=cfg_model.num_radial,
-        basis_scales=cfg_model.basis_scales,
-        emin=cfg_model.emin,
-        emax=cfg_model.emax
+        max_z=cfg_model.get('max_z', 92),
+        num_layers=cfg_model.get('num_layers', 4),
+        lmax=cfg_model.get('lmax', 2),
+        mul_0=cfg_model.get('mul_0', 64),
+        mul_1=cfg_model.get('mul_1', 32),
+        mul_2=cfg_model.get('mul_2', 16),
+        r_max=cfg.data.r_max,
+        num_basis=cfg_model.get('num_basis', 128),
+        num_radial=cfg_model.get('num_radial', 12),
+        radial_basis_type=cfg_model.get('radial_basis_type', 'bessel'),
+        basis_scales=cfg_model.get('basis_scales', [0.1, 0.5, 1.0]),
+        emin=cfg_model.get('emin', -30.0),
+        emax=cfg_model.get('emax', 100.0),
+        dropout=cfg_model.get('dropout', 0.05),
+        global_bg=cfg_model.get('global_bg', True)
     )
     
     model.load_state_dict(state_dict)
     model.eval()
     
-    # If we used a saved_config, we might need a way to return the full cfg
-    # for other parts of the script (like r_max for graph construction).
-    if saved_config is not None:
-        # Create a dummy cfg object that matches what the script expects
-        full_cfg = OmegaConf.create({"model": saved_config})
-    else:
-        full_cfg = cfg
-        
-    return model, full_cfg
+    return model, cfg
 
 def predict(model, atoms, r_max, num_energy_points=100):
     """Predicts the spectrum for an ASE Atoms object."""
@@ -137,7 +135,7 @@ def main():
         energies, intensities = predict(
             model, 
             atoms, 
-            r_max=cfg.model.r_max, 
+            r_max=cfg.data.r_max, 
             num_energy_points=cfg.model.num_energy_points
         )
         

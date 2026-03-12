@@ -97,7 +97,7 @@ class XANESDataset(InMemoryDataset):
     @staticmethod
     def normalize_xanes(E=None, mu=None, E0=None, pre_range=(-55, -20), post_range=(80, 150), post_order=1):
         """
-        Normalize a XANES spectrum using pre-edge subtraction and post-edge scaling.
+        Normalize a XANES spectrum using pre-edge subtraction and post-edge scaling to ensure unit edge step.
         """
         if E is not None and mu is not None:
             E = np.asarray(E, dtype=float)
@@ -180,7 +180,8 @@ class XANESDataset(InMemoryDataset):
                     print(f"Skipping row id={row.id}: Normalization failed - {e}")
                     continue
 
-                # Interpolating the xanes using `uniform_energy_grid`
+                # Interpolating the xanes using `uniform_energy_grid`, which often 
+                # has a smaller energy range than the computed XANES
                 interp_y = np.interp(uniform_energy_grid, raw_e, norm_y)
                 y = torch.tensor(interp_y, dtype=torch.float).unsqueeze(0)
                 # y has (1, N_E) shape to indicate PyG that `y` is a graph property, not a node property.
