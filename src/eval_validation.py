@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import argparse
 import os
-from omegaconf import OmegaConf
+
 from torch_geometric.data import DataLoader
 from src.inference import load_model
 from src.data.dataset import XANESDataset
@@ -13,7 +13,6 @@ from src.visualization import generate_validation_plots
 def main():
     parser = argparse.ArgumentParser(description="Evaluate model on random validation example(s).")
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to model checkpoint (.pt)")
-    parser.add_argument("--config", type=str, default="configs/config.yaml", help="Path to config file (if not in checkpoint)")
     parser.add_argument("--db", type=str, help="Override database path if different from config")
     parser.add_argument("--output", type=str, default="val_evaluation.png", help="Where to save the plot")
     parser.add_argument("-n", "--num_samples", type=int, default=1, help="Number of random samples to draw")
@@ -21,12 +20,12 @@ def main():
     args = parser.parse_args()
     
     # 1. Load Model and Config
-    model, cfg = load_model(args.checkpoint, args.config)
+    model, model_config, data_config = load_model(args.checkpoint)
     device = next(model.parameters()).device
     
     # 2. Setup Dataset
-    root_path = cfg.data.root
-    db_path = args.db if args.db else cfg.data.db_path
+    root_path = data_config.get('root', '.')
+    db_path = args.db if args.db else data_config.get('db_path')
     
     if db_path is None:
          db_path = "xanes_dataset.db"
@@ -36,10 +35,10 @@ def main():
     dataset = XANESDataset(
         root=root_path,
         db_path=db_path,
-        r_max=cfg.data.r_max,
-        emin=cfg.model.emin,
-        emax=cfg.model.emax,
-        num_energy_points=cfg.model.num_energy_points,
+        r_max=data_config['r_max'],
+        emin=model_config['emin'],
+        emax=model_config['emax'],
+        num_energy_points=model_config['num_energy_points'],
         preprocess=False
     )
     
@@ -53,7 +52,7 @@ def main():
         return
 
     # 3, 4 & 5. Generate plots using shared utility
-    energy_grid = torch.linspace(cfg.model.emin, cfg.model.emax, cfg.model.num_energy_points).to(device)
+    energy_grid = torch.linspace(model_config['emin'], model_config['emax'], model_config['num_energy_points']).to(device)
     
     generate_validation_plots(
         model=model,

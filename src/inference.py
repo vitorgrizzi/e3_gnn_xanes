@@ -12,13 +12,11 @@ import matplotlib.pyplot as plt
 from ase.io import read
 from src.model import XANES_E3GNN
 from src.data import atoms_to_graph
-from omegaconf import OmegaConf
 
-def load_model(checkpoint_path, config_path=None):
+
+def load_model(checkpoint_path):
     """
-    Loads the trained model and its configuration.
-    
-    If config_path is not provided, it looks for it in the same directory as the checkpoint.
+    Loads the trained model and its configuration directly from a self-contained checkpoint.
     """
     # Load checkpoint
     checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu'))
@@ -26,50 +24,37 @@ def load_model(checkpoint_path, config_path=None):
     # Check if this is a training checkpoint (dict) or a raw state_dict
     if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
         state_dict = checkpoint['model_state_dict']
-        saved_config = checkpoint.get('model_config')
+        model_config = checkpoint.get('model_config')
+        data_config = checkpoint.get('data_config')
     else:
-        state_dict = checkpoint
-        saved_config = None
+        raise ValueError("Provided checkpoint is not a valid training dictionary or is missing configuration blocks.")
 
-    if config_path is None:
-        # Default to standard config location
-        config_path = "configs/config.yaml" 
-    
-    print(f"Loading full configuration from {config_path}...")
-    cfg = OmegaConf.load(config_path)
-
-    if saved_config is not None:
-        print("Using model configuration from checkpoint.")
-        # Wrap in OmegaConf so we can use dot notation even for raw dicts
-        cfg_model = OmegaConf.create(saved_config)
-        # Update full cfg layout with the checkpointed model dict
-        cfg.model = cfg_model
-    else:
-        cfg_model = cfg.model
+    print("Using model and data configuration from checkpoint.")
+    cfg = {"model": model_config, "data": data_config}
     
     # Initialize model with config parameters
     model = XANES_E3GNN(
-        max_z=cfg_model.get('max_z', 92),
-        num_layers=cfg_model.get('num_layers', 4),
-        lmax=cfg_model.get('lmax', 2),
-        mul_0=cfg_model.get('mul_0', 64),
-        mul_1=cfg_model.get('mul_1', 32),
-        mul_2=cfg_model.get('mul_2', 16),
-        r_max=cfg.data.r_max,
-        num_basis=cfg_model.get('num_basis', 128),
-        num_radial=cfg_model.get('num_radial', 12),
-        radial_basis_type=cfg_model.get('radial_basis_type', 'bessel'),
-        basis_scales=cfg_model.get('basis_scales', [0.1, 0.5, 1.0]),
-        emin=cfg_model.get('emin', -30.0),
-        emax=cfg_model.get('emax', 100.0),
-        dropout=cfg_model.get('dropout', 0.05),
-        global_bg=cfg_model.get('global_bg', True)
+        max_z=model_config['max_z'],
+        num_layers=model_config['num_layers'],
+        lmax=model_config['lmax'],
+        mul_0=model_config['mul_0'],
+        mul_1=model_config['mul_1'],
+        mul_2=model_config['mul_2'],
+        r_max=data_config['r_max'],
+        num_basis=model_config['num_basis'],
+        num_radial=model_config['num_radial'],
+        radial_basis_type=model_config['radial_basis_type'],
+        basis_scales=model_config['basis_scales'],
+        emin=model_config['emin'],
+        emax=model_config['emax'],
+        dropout=model_config['dropout'],
+        global_bg=model_config['global_bg']
     )
     
     model.load_state_dict(state_dict)
-    model.eval()
+    model.eval() # Set model to evaluation mode
     
-    return model, cfg
+    return model, model_config, data_config
 
 def predict(model, atoms, r_max, num_energy_points=100):
     """Predicts the spectrum for an ASE Atoms object."""
@@ -93,7 +78,6 @@ def predict(model, atoms, r_max, num_energy_points=100):
 def main():
     parser = argparse.ArgumentParser(description="Predict XANES spectrum for a structure.")
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to best_model.pt")
-    parser.add_argument("--config", type=str, default="configs/config.yaml", help="Path to configuration file")
     parser.add_argument("--structure", type=str, required=True, help="Path to structure file (CIF, POSCAR, XYZ)")
     parser.add_argument("--output", type=str, default="prediction.png", help="Path to save the plot")
     parser.add_argument("--tag_absorbers", type=int, nargs='+', help="Specific indices of absorber atoms (set tag=1)")
@@ -101,11 +85,11 @@ def main():
     
     args = parser.parse_args()
     
-    # 1. Load Model
+    # Load Model
     print(f"Loading model from {args.checkpoint}...")
-    model, cfg = load_model(args.checkpoint, args.config)
+    model, model_config, data_config = load_model(args.checkpoint)
     
-    # 2. Prepare Structure
+    # Prepare Structure
     print(f"Reading structure from {args.structure}...")
     atoms = read(args.structure)
     
@@ -129,14 +113,14 @@ def main():
     if args.absorber_z is not None or args.tag_absorbers is not None:
         atoms.set_tags(tags)
     
-    # 3. Predict
+    # Predict
     print("Running inference...")
     try:
         energies, intensities = predict(
             model, 
             atoms, 
-            r_max=cfg.data.r_max, 
-            num_energy_points=cfg.model.num_energy_points
+            r_max=data_config['r_max'], 
+            num_energy_points=model_config['num_energy_points']
         )
         
         # 4. Save/Plot

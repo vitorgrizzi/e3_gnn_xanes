@@ -11,7 +11,7 @@ from src.model import XANES_E3GNN
 from src.loss import SpectrumLoss
 from src.data.dataset import XANESDataset
 from src.visualization import generate_validation_plots
-from src.inference import load_model
+
 
 
 def get_gpu_memory():
@@ -80,7 +80,7 @@ def train_epoch(model, loader, optimizer, criterion, device, energy_grid, grad_c
     return total_loss / n, total_mse / n, total_grad / n, total_lap / n
 
 
-def run_training(model, train_loader, val_loader, config, model_config=None):
+def run_training(model, train_loader, val_loader, config, model_config=None, data_config=None):
     """
     Run the full training loop with given loaders and config.
     
@@ -238,7 +238,8 @@ def run_training(model, train_loader, val_loader, config, model_config=None):
                     'optimizer_state_dict': optimizer.state_dict(),
                     'scheduler_state_dict': scheduler.state_dict(),
                     'best_val_loss': best_val_loss,
-                    'model_config': model_config
+                    'model_config': model_config,
+                    'data_config': data_config
                 }, save_path)
         else:
             if not is_annealing_phase:
@@ -348,7 +349,11 @@ def main(cfg: DictConfig):
     }
     
     # 6. Run Training
-    run_training(model, train_loader, val_loader, config, model_config=OmegaConf.to_container(cfg.model, resolve=True))
+    run_training(
+        model, train_loader, val_loader, config, 
+        model_config=OmegaConf.to_container(cfg.model, resolve=True),
+        data_config=OmegaConf.to_container(cfg.data, resolve=True)
+    )
 
     # 7. Post-training evaluation plots
     num_samples = cfg.training.get('num_val_samples', 0)
@@ -356,8 +361,9 @@ def main(cfg: DictConfig):
         print(f"\nTraining finished. Generating {num_samples} validation plots...")
         try:
             # Reload the best model to ensure we plot the best results
-            best_model, _ = load_model(config['save_path'])
-            best_model = best_model.to(device)
+            checkpoint = torch.load(config['save_path'], map_location=device)
+            model.load_state_dict(checkpoint['model_state_dict'])
+            best_model = model.to(device)
             
             output_dir = "validation_plots"
             os.makedirs(output_dir, exist_ok=True)
